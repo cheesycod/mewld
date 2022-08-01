@@ -1,0 +1,6 @@
+dir: mewbot
+override_dir:
+env:
+  - env1
+  - env2
+names: PATH_TO_CLUSTER_NAMES

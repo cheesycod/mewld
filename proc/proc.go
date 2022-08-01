@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"mewld/config"
 	"mewld/coreutils"
 	"os"
 	"os/exec"
@@ -25,6 +26,7 @@ type InstanceList struct {
 	Map                  []ClusterMap
 	Instances            []*Instance
 	ShardCount           uint64
+	Config               config.CoreConfig
 }
 
 type Instance struct {

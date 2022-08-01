@@ -1,6 +1,7 @@
 package main
 
 import (
+	"mewld/config"
 	"mewld/coreutils"
 	"mewld/proc"
 	"mewld/utils"
@@ -8,23 +9,45 @@ import (
 	"os"
 	"strconv"
 
+	_ "embed"
+
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 )
 
+//go:embed config.yaml
+var configBytes []byte
+
 func main() {
-	dirname, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatal(err)
-	}
+	// Load the config file
+	var config config.CoreConfig
 
-	err = os.Chdir(dirname + "/mewbot")
+	err := yaml.Unmarshal(configBytes, &config)
 
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Check config file again: ", err)
 	}
 
-	err = godotenv.Load("env/bot.env", "env/mongo.env", "env/postgres.env", "env/voting.env")
+	var dir string
+	if config.OverrideDir != "" {
+		dir = config.OverrideDir
+	} else {
+		dirname, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatal("Could not find HOME directory: ", err)
+		}
+
+		dir = dirname + "/" + config.Dir
+	}
+
+	err = os.Chdir(dir)
+
+	if err != nil {
+		log.Fatal("Could not change into directory: ", err)
+	}
+
+	err = godotenv.Load(config.Env...)
 
 	if err != nil {
 		log.Fatal(err)
@@ -41,7 +64,7 @@ func main() {
 	}
 
 	// Get cluster names from assets/data/names.txt
-	clusterNames, err := utils.ReadLines("assets/data/names.txt")
+	clusterNames, err := utils.ReadLines(config.Names)
 
 	if err != nil {
 		log.Fatal(err)
@@ -57,7 +80,7 @@ func main() {
 
 	clusterMap := utils.GetClusterList(clusterNames, shardCount.Shards, perCluster)
 
-	il := proc.InstanceList{Map: clusterMap, Instances: []*proc.Instance{}, ShardCount: shardCount.Shards}
+	il := proc.InstanceList{Config: config, Map: clusterMap, Instances: []*proc.Instance{}, ShardCount: shardCount.Shards}
 
 	for _, cMap := range clusterMap {
 		log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+"): ", coreutils.ToPyListUInt64(cMap.Shards))

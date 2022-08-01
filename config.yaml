@@ -1,0 +1,8 @@
+dir: mewbot
+override_dir:
+env:
+  - "env/bot.env"
+  - "env/mongo.env"
+  - "env/postgres.env"
+  - "env/voting.env"
+names: assets/data/names.txt
