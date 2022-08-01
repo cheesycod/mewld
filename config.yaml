@@ -6,3 +6,4 @@ env:
   - "env/postgres.env"
   - "env/voting.env"
 names: assets/data/names.txt
+module: mew

@@ -80,7 +80,7 @@ func main() {
 
 	clusterMap := utils.GetClusterList(clusterNames, shardCount.Shards, perCluster)
 
-	il := proc.InstanceList{Config: config, Map: clusterMap, Instances: []*proc.Instance{}, ShardCount: shardCount.Shards}
+	il := proc.InstanceList{Config: config, Dir: dir, Map: clusterMap, Instances: []*proc.Instance{}, ShardCount: shardCount.Shards}
 
 	for _, cMap := range clusterMap {
 		log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+"): ", coreutils.ToPyListUInt64(cMap.Shards))

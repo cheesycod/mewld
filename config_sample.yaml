@@ -4,3 +4,4 @@ env:
   - env1
   - env2
 names: PATH_TO_CLUSTER_NAMES
+module: MODULE_OR_FILE_FOR_CLUSTERER_TO_LAUNCH

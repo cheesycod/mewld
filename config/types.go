@@ -5,4 +5,5 @@ type CoreConfig struct {
 	OverrideDir string   `yaml:"override_dir"`
 	Env         []string `yaml:"env"`
 	Names       string   `yaml:"names"`
+	Module      string   `yaml:"module"`
 }

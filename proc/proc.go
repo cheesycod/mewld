@@ -27,6 +27,7 @@ type InstanceList struct {
 	Instances            []*Instance
 	ShardCount           uint64
 	Config               config.CoreConfig
+	Dir                  string
 }
 
 type Instance struct {
@@ -111,7 +112,7 @@ func (l *InstanceList) Start(i *Instance) {
 
 	cmd := exec.Command(
 		pyInterp,
-		dir+"/mew",
+		l.Dir+"/"+l.Config.Module,
 		coreutils.ToPyListUInt64(i.Shards),
 		coreutils.UInt64ToString(l.ShardCount),
 		strconv.Itoa(i.ClusterID),
