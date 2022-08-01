@@ -1,3 +1,4 @@
+// Process manager for mewld
 package proc
 
 import (
@@ -5,8 +6,8 @@ import (
 	"mewld/coreutils"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,6 +29,7 @@ type InstanceList struct {
 	ShardCount           uint64
 	Config               config.CoreConfig
 	Dir                  string
+	StartMutex           *sync.Mutex
 }
 
 type Instance struct {
@@ -38,36 +40,38 @@ type Instance struct {
 	Command   *exec.Cmd
 }
 
-func (l *InstanceList) OsSignalHandle() {
-	// Create a channel for signal handling
-	sigs := make(chan os.Signal, 1)
+func (l *InstanceList) StartNext() {
+	// Mutex to prevent multiple instances from starting at the same time
+	l.StartMutex.Lock()
+	defer l.StartMutex.Unlock()
 
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-
-	// Wait for a signal in a loop
-	for sig := range sigs {
-		log.Info("Received signal: ", sig)
-
-		// Kill all instances
-		for _, i := range l.Instances {
-			if i.Command == nil {
-				log.Error("Cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ") is not running")
-			} else {
-				log.Info("Killing cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ")")
-				i.Command.Process.Kill()
-			}
+	// Get next instance to start
+	for _, i := range l.Instances {
+		if i.Command == nil || i.Command.Process == nil {
+			log.Info("Going to start *next* cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
+			l.Start(i)
+			return
 		}
+	}
+}
 
-		// Wait for all instances to die
-		for _, i := range l.Instances {
-			if i.Command == nil {
-				continue
-			}
-			i.Command.Wait()
+func (l *InstanceList) KillAll() {
+	// Kill all instances
+	for _, i := range l.Instances {
+		if i.Command == nil {
+			log.Error("Cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ") is not running")
+		} else {
+			log.Info("Killing cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ")")
+			i.Command.Process.Kill()
 		}
+	}
 
-		// Exit
-		os.Exit(0)
+	// Wait for all instances to die
+	for _, i := range l.Instances {
+		if i.Command == nil {
+			continue
+		}
+		i.Command.Wait()
 	}
 }
 
@@ -78,6 +82,26 @@ func (l *InstanceList) Cluster(i *Instance) *ClusterMap {
 		}
 	}
 	return nil
+}
+
+type StopCode int
+
+const (
+	StopCodeNormal        StopCode = 0
+	StopCodeRestartFailed StopCode = -1
+)
+
+func (l *InstanceList) Stop(i *Instance) StopCode {
+	if i.Command == nil || i.Command.Process == nil {
+		log.Error("Cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ") is not running. Cannot stop process which isn't running?")
+		return StopCodeRestartFailed
+	}
+
+	log.Info("Stopping cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
+
+	i.Command.Process.Kill()
+
+	return StopCodeNormal
 }
 
 func (l *InstanceList) Start(i *Instance) {
@@ -134,7 +158,7 @@ func (l *InstanceList) Start(i *Instance) {
 		log.Error("Cluster "+cluster.Name+"("+strconv.Itoa(cluster.ID)+") failed to start", err)
 	}
 
-	l.Observe(i)
+	go l.Observe(i)
 }
 
 func (l *InstanceList) Observe(i *Instance) {
@@ -146,5 +170,10 @@ func (l *InstanceList) Observe(i *Instance) {
 				log.Infof("Exit Status: %d", status.ExitStatus())
 			}
 		}
+
+		// Restart process
+		time.Sleep(time.Second * 2)
+		l.Stop(i)
+		l.Start(i)
 	}
 }

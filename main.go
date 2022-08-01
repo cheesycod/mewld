@@ -4,10 +4,14 @@ import (
 	"mewld/config"
 	"mewld/coreutils"
 	"mewld/proc"
+	"mewld/redis"
 	"mewld/utils"
 	"mewld/web"
 	"os"
+	"os/signal"
 	"strconv"
+	"sync"
+	"syscall"
 
 	_ "embed"
 
@@ -80,7 +84,14 @@ func main() {
 
 	clusterMap := utils.GetClusterList(clusterNames, shardCount.Shards, perCluster)
 
-	il := proc.InstanceList{Config: config, Dir: dir, Map: clusterMap, Instances: []*proc.Instance{}, ShardCount: shardCount.Shards}
+	il := proc.InstanceList{
+		Config:     config,
+		Dir:        dir,
+		Map:        clusterMap,
+		Instances:  []*proc.Instance{},
+		ShardCount: shardCount.Shards,
+		StartMutex: &sync.Mutex{},
+	}
 
 	for _, cMap := range clusterMap {
 		log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+"): ", coreutils.ToPyListUInt64(cMap.Shards))
@@ -91,9 +102,24 @@ func main() {
 		})
 	}
 
-	// Start the signal handler
-	go il.OsSignalHandle()
+	// Start the redis handler
+	redish := redis.CreateHandler(config)
+	go redish.Start(&il)
+
+	// Wait here until we get a signal
+	sigs := make(chan os.Signal, 1)
+
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	// We now start the first cluster, this cluster will then alert us over redis when to start cluster 2 (todo: timeout?)
 	il.Start(il.Instances[0])
+
+	sig := <-sigs
+
+	log.Info("Received signal: ", sig)
+
+	il.KillAll()
+
+	// Exit
+	os.Exit(0)
 }

@@ -7,3 +7,5 @@ env:
   - "env/voting.env"
 names: assets/data/names.txt
 module: mew
+redis: 178.28.0.13:6379
+redis_channel: mewbot_clusters
