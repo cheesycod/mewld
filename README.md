@@ -20,7 +20,13 @@ CommandId string         `json:"command_id,omitempty"`
 Output    string         `json:"output,omitempty"`
 ```
 
-| Syntax      	   | Description 									  | Args                 |
-| ------           | ----------- 									  | ----                 |
-| launch_next      | Ready to launch next cluster, if available       | id -> cluster ID     |
-| rollingrestart   | Rolling restart all clusters, one by one         |                      |
+| Syntax      	   | Description 									  | Args                    |
+| ------           | ----------- 									  | ----                    |
+| launch_next      | Ready to launch next cluster, if available       | id -> cluster ID        |
+| rollingrestart   | Rolling restart all clusters, one by one         |                         |
+| statuses         | Gets the statuses of all clusters. Currently a *internal* API |            |
+| shutdown         | Shuts down the entire bot and lets systemctl start it up again if needed | |
+
+## TODO
+
+Finish documenting redis and bug fixes

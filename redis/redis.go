@@ -7,6 +7,8 @@ import (
 	"mewld/config"
 	"mewld/proc"
 	"reflect"
+	"strconv"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
 
@@ -46,7 +48,20 @@ type LauncherCmd struct {
 	Action    string         `json:"action"`
 	Args      map[string]any `json:"args,omitempty"`
 	CommandId string         `json:"command_id,omitempty"`
-	Output    string         `json:"output,omitempty"`
+	Output    any            `json:"output,omitempty"`
+}
+
+type status struct {
+	Active    bool     `json:"active"`
+	Status    string   `json:"status"`
+	Name      string   `json:"name"`
+	StartedAt int64    `json:"started_at"`
+	ShardList []uint64 `json:"shard_list"`
+}
+
+type numproc struct {
+	Clusters int    `json:"clusters"`
+	Shards   uint64 `json:"shards"`
 }
 
 func (r *RedisHandler) Start(il *proc.InstanceList) {
@@ -57,7 +72,7 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 
 	// Start listening for messages
 	for msg := range pubsub.Channel() {
-		log.Info("Got redis message: ", msg.Payload)
+		log.Debug("Got redis message: ", msg.Payload)
 
 		var cmd LauncherCmd
 
@@ -97,6 +112,121 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 				il.Acknowledge(cmd.CommandId)
 				il.RollingRestart()
 			}()
+		case "statuses":
+			payload := map[string]status{}
+
+			for _, i := range il.Instances {
+				statusStruct := status{
+					Active:    i.Active,
+					Status:    i.Status(),
+					Name:      il.Cluster(i).Name,
+					StartedAt: i.StartedAt.Unix(),
+					ShardList: i.Shards,
+				}
+				payload[strconv.Itoa(i.ClusterID)] = statusStruct
+			}
+
+			il.SendMessage(cmd.CommandId, payload, "bot")
+		case "shutdown":
+			log.Warn("Got request to shutdown (hopefully you have systemctl)")
+			il.Acknowledge(cmd.CommandId)
+			il.KillAll()
+			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
+		case "stop":
+			typeOfId := reflect.TypeOf(cmd.Args["id"])
+
+			log.Info("Got stop command for cluster ", cmd.Args["id"], " (", typeOfId, ")")
+
+			clusterId, ok := cmd.Args["id"].(float64)
+
+			if !ok {
+				log.Error("Could not get cluster id from args: ", cmd.Args["id"])
+				continue
+			}
+
+			for _, i := range il.Instances {
+				if i.ClusterID == int(clusterId) {
+					if !i.Active {
+						log.Error("Instance is not active")
+						continue
+					}
+
+					il.Acknowledge(cmd.CommandId)
+
+					err := il.Stop(i)
+
+					if err != proc.StopCodeNormal {
+						log.Error("Could not stop instance: ", err)
+						continue
+					}
+
+					break
+				}
+			}
+		case "start":
+			typeOfId := reflect.TypeOf(cmd.Args["id"])
+
+			log.Info("Got start command for cluster ", cmd.Args["id"], " (", typeOfId, ")")
+
+			clusterId, ok := cmd.Args["id"].(float64)
+
+			if !ok {
+				log.Error("Could not get cluster id from args: ", cmd.Args["id"])
+				continue
+			}
+
+			for _, i := range il.Instances {
+				if i.ClusterID == int(clusterId) {
+					il.Acknowledge(cmd.CommandId)
+
+					il.Start(i)
+					break
+				}
+			}
+
+		case "restart":
+			typeOfId := reflect.TypeOf(cmd.Args["id"])
+
+			log.Info("Got restart command for cluster ", cmd.Args["id"], " (", typeOfId, ")")
+
+			clusterId, ok := cmd.Args["id"].(float64)
+
+			if !ok {
+				log.Error("Could not get cluster id from args: ", cmd.Args["id"])
+				continue
+			}
+
+			for _, i := range il.Instances {
+				if i.ClusterID == int(clusterId) {
+					if !i.Active {
+						log.Error("Instance is not active")
+						continue
+					}
+
+					il.Acknowledge(cmd.CommandId)
+
+					i.LockObserver = true
+
+					err := il.Stop(i)
+
+					if err == proc.StopCodeNormal {
+						il.Start(i)
+					}
+
+					i.LockObserver = false
+
+					break
+				}
+			}
+		case "num_processes":
+			payload := numproc{
+				Clusters: len(il.Instances),
+				Shards:   il.ShardCount,
+			}
+
+			il.SendMessage(cmd.CommandId, payload, "bot")
+		default:
+			log.Error("Unknown action: ", cmd.Action, ": ", cmd.Args)
 		}
 	}
 }

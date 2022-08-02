@@ -37,16 +37,28 @@ type InstanceList struct {
 	Redis                *redis.Client   // Redis for publishing new messages, *not* subscribing
 	Ctx                  context.Context // Context for redis
 	startMutex           *sync.Mutex     // Internal mutex to prevent multiple instances from starting at the same time
-	RollRestarting       bool            // whether or not we are roll restarting
+	RollRestarting       bool            // whether or not we are roll restarting (rolling restart)
 	FullyUp              bool            // whether or not we are fully up
 }
 
 type Instance struct {
-	StartedAt time.Time
-	SessionID string   // Internally used to identify the instance
-	ClusterID int      // ClusterID from clustermap
-	Shards    []uint64 // Shards that this instance is responsible for currently, should be equal to clustermap
-	Command   *exec.Cmd
+	StartedAt    time.Time
+	SessionID    string   // Internally used to identify the instance
+	ClusterID    int      // ClusterID from clustermap
+	Shards       []uint64 // Shards that this instance is responsible for currently, should be equal to clustermap
+	Command      *exec.Cmd
+	Active       bool // Whether or not this instance is active
+	LockObserver bool // Whether or not observer should be 'locked'/not process a kill
+}
+
+// Very simple status fetcher for "statuses" command
+func (i *Instance) Status() string {
+	if i.Active {
+		return "running"
+	} else if i.SessionID != "" {
+		return "initialized"
+	}
+	return "stopped"
 }
 
 func (l *InstanceList) Init() {
@@ -72,10 +84,15 @@ func (l *InstanceList) Init() {
 
 // Acknowledge a published message
 func (l *InstanceList) Acknowledge(cmdId string) error {
+	return l.SendMessage(cmdId, "ok", "bot")
+}
+
+// Acknowledge a published message
+func (l *InstanceList) SendMessage(cmdId string, payload any, scope string) error {
 	msg := map[string]any{
 		"command_id": cmdId,
-		"output":     "ok",
-		"scope":      "bot",
+		"output":     payload,
+		"scope":      scope,
 	}
 
 	bytes, err := json.Marshal(msg)
@@ -149,6 +166,8 @@ func (l *InstanceList) KillAll() {
 		} else {
 			log.Info("Killing cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ")")
 			i.Command.Process.Kill()
+			i.Active = false
+			i.SessionID = ""
 		}
 	}
 
@@ -187,6 +206,8 @@ func (l *InstanceList) Stop(i *Instance) StopCode {
 	log.Info("Stopping cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
 
 	i.Command.Process.Kill()
+
+	i.Active = false
 
 	i.SessionID = ""
 
@@ -259,19 +280,28 @@ func (l *InstanceList) Start(i *Instance) {
 		log.Error("Cluster "+cluster.Name+"("+strconv.Itoa(cluster.ID)+") failed to start", err)
 	}
 
+	i.Active = true
+
 	go l.Observe(i, i.SessionID)
 }
 
 func (l *InstanceList) Observe(i *Instance, sid string) {
 	if err := i.Command.Wait(); err != nil {
-		if i.SessionID == "" {
+		if i.SessionID == "" || sid != i.SessionID {
 			return // Stop observer if instance is stopped
+		}
+
+		if i.LockObserver {
+			log.Error("Cluster locked, cannot restart ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
+			return
 		}
 
 		if l.RollRestarting {
 			log.Error("Roll restart is in progress, ignoring restart on cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
 			return
 		}
+
+		i.Active = false
 
 		log.Error("Cluster "+l.Cluster(i).Name+" ("+strconv.Itoa(l.Cluster(i).ID)+") died unexpectedly: ", err)
 
@@ -282,8 +312,9 @@ func (l *InstanceList) Observe(i *Instance, sid string) {
 		}
 
 		// Restart process
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 3)
 		l.Stop(i)
+		time.Sleep(time.Second * 3)
 		l.Start(i)
 	}
 }
