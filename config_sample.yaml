@@ -7,3 +7,4 @@ names: PATH_TO_CLUSTER_NAMES
 module: MODULE_OR_FILE_FOR_CLUSTERER_TO_LAUNCH
 redis: REDIS_URL
 redis_channel: REDIS_CHANNEL_TO_SEND_MESSAGES_TO
+interp: The interpreter to run, if none, the module is directly ran

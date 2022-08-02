@@ -2,6 +2,8 @@
 package proc
 
 import (
+	"context"
+	"encoding/json"
 	"mewld/config"
 	"mewld/coreutils"
 	"os"
@@ -11,8 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-redis/redis/v9"
 	log "github.com/sirupsen/logrus"
 )
+
+var RollRestartChannel = make(chan int)
 
 // Represents a "cluster" of instances.
 type ClusterMap struct {
@@ -29,22 +34,101 @@ type InstanceList struct {
 	ShardCount           uint64
 	Config               config.CoreConfig
 	Dir                  string
-	StartMutex           *sync.Mutex
+	Redis                *redis.Client   // Redis for publishing new messages, *not* subscribing
+	Ctx                  context.Context // Context for redis
+	startMutex           *sync.Mutex     // Internal mutex to prevent multiple instances from starting at the same time
+	RollRestarting       bool            // whether or not we are roll restarting
+	FullyUp              bool            // whether or not we are fully up
 }
 
 type Instance struct {
 	StartedAt time.Time
-	SessionID string
+	SessionID string   // Internally used to identify the instance
 	ClusterID int      // ClusterID from clustermap
 	Shards    []uint64 // Shards that this instance is responsible for currently, should be equal to clustermap
 	Command   *exec.Cmd
 }
 
-func (l *InstanceList) StartNext() {
-	// Mutex to prevent multiple instances from starting at the same time
-	l.StartMutex.Lock()
-	defer l.StartMutex.Unlock()
+func (l *InstanceList) Init() {
+	l.startMutex = &sync.Mutex{}
 
+	ctx := context.Background()
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     l.Config.Redis,
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+
+	status := rdb.Ping(ctx)
+
+	if status.Err() != nil {
+		log.Fatal("Redis error: ", status.Err())
+	}
+
+	l.Ctx = ctx
+	l.Redis = rdb
+}
+
+// Acknowledge a published message
+func (l *InstanceList) Acknowledge(cmdId string) error {
+	msg := map[string]any{
+		"command_id": cmdId,
+		"output":     "ok",
+		"scope":      "bot",
+	}
+
+	bytes, err := json.Marshal(msg)
+
+	if err != nil {
+		return err
+	}
+
+	err = l.Redis.Publish(l.Ctx, l.Config.RedisChannel, bytes).Err()
+
+	return err
+}
+
+// Should be called as a seperate goroutine
+func (l *InstanceList) RollingRestart() {
+	if !l.FullyUp {
+		log.Error("Not fully up, not rolling restart")
+		return
+	}
+
+	l.RollRestarting = true
+
+	for _, i := range l.Instances {
+		log.Info("Rolling restart on cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
+
+		code := l.Stop(i)
+
+		if code == StopCodeRestartFailed {
+			log.Error("Rolling restart failed on cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
+			continue
+		}
+
+		// Now start cluster again
+		l.Start(i)
+
+		for {
+			id := <-RollRestartChannel
+
+			if id != i.ClusterID {
+				log.Info("Ignoring restart of cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, "). Waiting for cluster ", id, " to restart")
+			} else {
+				break
+			}
+		}
+	}
+
+	log.Info("Rolling restart finished")
+
+	l.RollRestarting = false
+}
+
+func (l *InstanceList) StartNext() {
+	l.FullyUp = false // We are starting a new instance, so we are not fully up yet
 	// Get next instance to start
 	for _, i := range l.Instances {
 		if i.Command == nil || i.Command.Process == nil {
@@ -53,6 +137,8 @@ func (l *InstanceList) StartNext() {
 			return
 		}
 	}
+
+	l.FullyUp = true // If we get here, we are fully up
 }
 
 func (l *InstanceList) KillAll() {
@@ -94,6 +180,7 @@ const (
 func (l *InstanceList) Stop(i *Instance) StopCode {
 	if i.Command == nil || i.Command.Process == nil {
 		log.Error("Cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ") is not running. Cannot stop process which isn't running?")
+		i.SessionID = "" // Just in case, we set session ID to empty string, this kills observer
 		return StopCodeRestartFailed
 	}
 
@@ -101,19 +188,21 @@ func (l *InstanceList) Stop(i *Instance) StopCode {
 
 	i.Command.Process.Kill()
 
+	i.SessionID = ""
+
+	log.Info("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") stopped")
+
 	return StopCodeNormal
 }
 
 func (l *InstanceList) Start(i *Instance) {
+	// Mutex to prevent multiple instances from starting at the same time
+	l.startMutex.Lock()
+	defer l.startMutex.Unlock()
+
 	i.StartedAt = time.Now()
 	l.LastClusterStartedAt = time.Now()
-
-	// Get python interpreter
-	pyInterp := "/usr/bin/python3.10"
-
-	if os.Getenv("PYTHON_INTERP") != "" {
-		pyInterp = os.Getenv("PYTHON_INTERP")
-	}
+	i.SessionID = coreutils.RandomString(32)
 
 	dir, err := os.Getwd()
 
@@ -129,21 +218,33 @@ func (l *InstanceList) Start(i *Instance) {
 		panic("Cluster not found")
 	}
 
-	//dQ := "\""
-
-	// Deprecated (logging code, set 0 for now)
+	// Log mode, depends on bot to handle it
 	loggingCode := "0"
 
-	cmd := exec.Command(
-		pyInterp,
-		l.Dir+"/"+l.Config.Module,
-		coreutils.ToPyListUInt64(i.Shards),
-		coreutils.UInt64ToString(l.ShardCount),
-		strconv.Itoa(i.ClusterID),
-		cluster.Name,
-		loggingCode,
-		dir,
-	)
+	// Get interpreter/caller
+	var cmd *exec.Cmd
+	if l.Config.Interp != "" {
+		cmd = exec.Command(
+			l.Config.Interp,
+			l.Dir+"/"+l.Config.Module,
+			coreutils.ToPyListUInt64(i.Shards),
+			coreutils.UInt64ToString(l.ShardCount),
+			strconv.Itoa(i.ClusterID),
+			cluster.Name,
+			loggingCode,
+			dir,
+		)
+	} else {
+		cmd = exec.Command(
+			l.Dir+"/"+l.Config.Module,
+			coreutils.ToPyListUInt64(i.Shards),
+			coreutils.UInt64ToString(l.ShardCount),
+			strconv.Itoa(i.ClusterID),
+			cluster.Name,
+			loggingCode,
+			dir,
+		)
+	}
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -158,11 +259,20 @@ func (l *InstanceList) Start(i *Instance) {
 		log.Error("Cluster "+cluster.Name+"("+strconv.Itoa(cluster.ID)+") failed to start", err)
 	}
 
-	go l.Observe(i)
+	go l.Observe(i, i.SessionID)
 }
 
-func (l *InstanceList) Observe(i *Instance) {
+func (l *InstanceList) Observe(i *Instance, sid string) {
 	if err := i.Command.Wait(); err != nil {
+		if i.SessionID == "" {
+			return // Stop observer if instance is stopped
+		}
+
+		if l.RollRestarting {
+			log.Error("Roll restart is in progress, ignoring restart on cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
+			return
+		}
+
 		log.Error("Cluster "+l.Cluster(i).Name+" ("+strconv.Itoa(l.Cluster(i).ID)+") died unexpectedly: ", err)
 
 		if exiterr, ok := err.(*exec.ExitError); ok {

@@ -8,4 +8,5 @@ type CoreConfig struct {
 	Module       string   `yaml:"module"`
 	Redis        string   `yaml:"redis"`
 	RedisChannel string   `yaml:"redis_channel"`
+	Interp       string   `yaml:"interp"`
 }

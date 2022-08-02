@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"mewld/config"
 	"mewld/proc"
+	"reflect"
 
 	log "github.com/sirupsen/logrus"
 
@@ -41,9 +42,11 @@ func CreateHandler(config config.CoreConfig) RedisHandler {
 }
 
 type LauncherCmd struct {
-	Scope  string         `json:"scope"`
-	Action string         `json:"action"`
-	Args   map[string]any `json:"args,omitempty"`
+	Scope     string         `json:"scope"`
+	Action    string         `json:"action"`
+	Args      map[string]any `json:"args,omitempty"`
+	CommandId string         `json:"command_id,omitempty"`
+	Output    string         `json:"output,omitempty"`
 }
 
 func (r *RedisHandler) Start(il *proc.InstanceList) {
@@ -69,8 +72,31 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 			continue
 		}
 
-		if cmd.Action == "launch_next" {
+		switch cmd.Action {
+		case "launch_next":
+			if il.RollRestarting {
+				// Get cluster id from args
+				typeOfId := reflect.TypeOf(cmd.Args["id"])
+
+				log.Info("Got launch_next command for cluster ", cmd.Args["id"], " (", typeOfId, ")")
+
+				clusterId, ok := cmd.Args["id"].(float64)
+
+				if !ok {
+					log.Error("Could not get cluster id from args: ", cmd.Args["id"])
+					continue
+				}
+
+				// Push to proc.RollRestartChannel
+				proc.RollRestartChannel <- int(clusterId)
+				continue
+			}
 			il.StartNext()
+		case "rollingrestart":
+			go func() {
+				il.Acknowledge(cmd.CommandId)
+				il.RollingRestart()
+			}()
 		}
 	}
 }

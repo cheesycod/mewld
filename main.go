@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"sync"
 	"syscall"
 
 	_ "embed"
@@ -90,13 +89,14 @@ func main() {
 		Map:        clusterMap,
 		Instances:  []*proc.Instance{},
 		ShardCount: shardCount.Shards,
-		StartMutex: &sync.Mutex{},
 	}
+
+	il.Init()
 
 	for _, cMap := range clusterMap {
 		log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+"): ", coreutils.ToPyListUInt64(cMap.Shards))
 		il.Instances = append(il.Instances, &proc.Instance{
-			SessionID: utils.RandomString(16),
+			SessionID: coreutils.RandomString(16),
 			ClusterID: cMap.ID,
 			Shards:    cMap.Shards,
 		})
