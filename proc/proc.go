@@ -150,8 +150,9 @@ func (l *InstanceList) StartNext() {
 	// Get next instance to start
 	for _, i := range l.Instances {
 		if i.Command == nil || i.Command.Process == nil {
-			log.Info("Going to start *next* cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
+			log.Info("Going to start *next* cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") after delay of 5 seconds due to concurrency")
 			l.Start(i)
+			time.Sleep(time.Second * 5)
 			return
 		}
 	}
