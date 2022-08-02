@@ -236,7 +236,7 @@ func (l *InstanceList) Start(i *Instance) {
 		)
 	} else {
 		cmd = exec.Command(
-			l.Dir+"/"+l.Config.Module,
+			l.Config.Module, // If no interpreter, we use the full module as the executable path
 			coreutils.ToPyListUInt64(i.Shards),
 			coreutils.UInt64ToString(l.ShardCount),
 			strconv.Itoa(i.ClusterID),
