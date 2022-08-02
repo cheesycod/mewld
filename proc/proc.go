@@ -84,15 +84,16 @@ func (l *InstanceList) Init() {
 
 // Acknowledge a published message
 func (l *InstanceList) Acknowledge(cmdId string) error {
-	return l.SendMessage(cmdId, "ok", "bot")
+	return l.SendMessage(cmdId, "ok", "bot", "")
 }
 
 // Acknowledge a published message
-func (l *InstanceList) SendMessage(cmdId string, payload any, scope string) error {
+func (l *InstanceList) SendMessage(cmdId string, payload any, scope string, action string) error {
 	msg := map[string]any{
 		"command_id": cmdId,
 		"output":     payload,
 		"scope":      scope,
+		"action":     action,
 	}
 
 	bytes, err := json.Marshal(msg)
@@ -155,6 +156,8 @@ func (l *InstanceList) StartNext() {
 		}
 	}
 
+	log.Info("No more instances to start. All done!!!")
+	l.SendMessage(coreutils.RandomString(16), "", "bot", "all_clusters_launched")
 	l.FullyUp = true // If we get here, we are fully up
 }
 

@@ -126,7 +126,7 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 				payload[strconv.Itoa(i.ClusterID)] = statusStruct
 			}
 
-			il.SendMessage(cmd.CommandId, payload, "bot")
+			il.SendMessage(cmd.CommandId, payload, "bot", "")
 		case "shutdown":
 			log.Warn("Got request to shutdown (hopefully you have systemctl)")
 			il.Acknowledge(cmd.CommandId)
@@ -224,7 +224,7 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 				Shards:   il.ShardCount,
 			}
 
-			il.SendMessage(cmd.CommandId, payload, "bot")
+			il.SendMessage(cmd.CommandId, payload, "bot", "")
 		default:
 			log.Error("Unknown action: ", cmd.Action, ": ", cmd.Args)
 		}
