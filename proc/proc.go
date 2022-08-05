@@ -37,6 +37,7 @@ type InstanceList struct {
 	Redis                *redis.Client   `json:"-"` // Redis for publishing new messages, *not* subscribing
 	Ctx                  context.Context `json:"-"` // Context for redis
 	startMutex           *sync.Mutex     `json:"-"` // Internal mutex to prevent multiple instances from starting at the same time
+	actLogMutex          *sync.Mutex     `json:"-"` // Internal mutex to prevent multiple edits of action logs at the same time
 	RollRestarting       bool            // whether or not we are roll restarting (rolling restart)
 	FullyUp              bool            // whether or not we are fully up
 }
@@ -61,8 +62,47 @@ func (i *Instance) Status() string {
 	return "stopped"
 }
 
+func (l *InstanceList) ActionLog(payload map[string]any) {
+	l.actLogMutex.Lock()
+	defer l.actLogMutex.Unlock()
+
+	payload["ts"] = time.Now().UnixMicro()
+
+	log.Info("Posting action log: ", payload)
+
+	oldPayload := l.Redis.Get(l.Ctx, l.Config.RedisChannel+"_action").Val()
+
+	var oldPayloadMap []map[string]any
+
+	if oldPayload != "" {
+		err := json.Unmarshal([]byte(oldPayload), &oldPayloadMap)
+
+		if err != nil {
+			log.Error("Error unmarshalling old action log: ", err)
+			oldPayloadMap = []map[string]any{}
+		}
+
+		oldPayloadMap = append(oldPayloadMap, payload)
+	}
+
+	bytes, err := json.Marshal(oldPayloadMap)
+
+	if err != nil {
+		log.Error("Error marshalling action log: ", err)
+		return
+	}
+
+	err = l.Redis.Set(l.Ctx, l.Config.RedisChannel+"_action", bytes, 0).Err()
+
+	if err != nil {
+		log.Error("Error posting action log: ", err)
+	}
+
+}
+
 func (l *InstanceList) Init() {
 	l.startMutex = &sync.Mutex{}
+	l.actLogMutex = &sync.Mutex{}
 
 	ctx := context.Background()
 

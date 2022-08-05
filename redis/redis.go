@@ -50,6 +50,7 @@ type LauncherCmd struct {
 	Args      map[string]any `json:"args,omitempty"`
 	CommandId string         `json:"command_id,omitempty"`
 	Output    any            `json:"output,omitempty"`
+	Data      map[string]any `json:"data,omitempty"` // Used in action logs
 }
 
 type status struct {
@@ -89,6 +90,8 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 		}
 
 		switch cmd.Action {
+		case "action_logs":
+			go il.ActionLog(cmd.Data)
 		case "restartproc":
 			log.Info("Restarting process: ", cmd.CommandId)
 			il.Acknowledge(cmd.CommandId)

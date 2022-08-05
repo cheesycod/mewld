@@ -178,14 +178,15 @@ func StartWebserver(webData WebData) {
 	r := gin.New()
 
 	r.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+		if param.Path == "/ping" {
+			return ""
+		}
 
 		// your custom format
-		return fmt.Sprintf("%s - [%s] \"%s %s %s %d %s \"%s\" %s\"\n",
+		return fmt.Sprintf("%s - \"%s %s %d %s \"%s\" %s\"\n",
 			param.ClientIP,
-			param.TimeStamp.Format(time.RFC1123),
 			param.Method,
 			param.Path,
-			param.Request.Proto,
 			param.StatusCode,
 			param.Latency,
 			param.Request.UserAgent(),
@@ -207,6 +208,16 @@ func StartWebserver(webData WebData) {
 	r.GET("/instance-list", loginRoute(
 		func(c *gin.Context) {
 			c.JSON(200, webData.InstanceList)
+		},
+	))
+
+	r.GET("/action-logs", loginRoute(
+		func(c *gin.Context) {
+			payload := webData.InstanceList.Redis.Get(webData.InstanceList.Ctx, webData.InstanceList.Config.RedisChannel+"_action").Val()
+
+			c.Header("Content-Type", "text/json")
+
+			c.String(200, payload)
 		},
 	))
 
