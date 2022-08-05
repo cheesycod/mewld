@@ -19,8 +19,11 @@
         <h2>Remove template to webui</h2>
         <button onclick="removeTemplate()">Remove</button>
 
-        <h2>Reload mewdl webui</h2>
+        <h2>Reload mewld webui</h2>
         <button onclick="reloadMewdl()">Reload</button>
+
+        <h1>Action Logs</h1>
+        <p id="action-logs">Fetching action logs...</p>
 
         <h1>Clusters</h1>
 
@@ -28,7 +31,7 @@
             {{range $cluster := .InstanceList.Map}}
                 <div class="cluster">
                     <p class="cluster-para">{{$cluster.ID}}. {{$cluster.Name}}</p>
-                    <div class="cluster-pane">
+                    <div class="cluster-pane" id="c-{{$cluster.ID}}">
                         Loading cluster information...
                     </div>
                 </div>
@@ -37,6 +40,8 @@
     </body>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script>
+        var instanceMap = null
+
         async function restartMewdl() {
             let p = prompt("Are you sure you want to restart mewdl (Yes/No)");
 
@@ -88,6 +93,7 @@
             });
             if (res.ok) {
                 alert("Reloading mewdl");
+                window.location.reload()
             } else {
                 alert("Failed to reload mewdl");
             }
@@ -105,6 +111,63 @@
             } else {
                 $(".status").text("Unknown");
                 $(".status").css("color", "black");
+            }
+        }
+
+        function renderInstanceMap() {
+            instanceMap.Instances.forEach(i => {
+                console.log(i)
+            })
+        }
+
+        function showAld(i) {
+            let el = document.querySelector(`#ald-${i}`)
+
+            if(el.style.display == "none") {
+                el.style.display = "initial"
+            } else {
+                el.style.display = "none"
+            }
+        }
+
+        async function fetchActionLogs() {
+            let res = await fetch("/action-logs", {
+                credentials: "include",
+            });
+            if (res.ok) {
+                let data = await res.json();
+
+                let html = ``;
+
+                i = 0
+
+                data.forEach(el => {
+                    console.log(el)
+
+                    html += "<div>"
+
+                    switch (el.event) {
+                        case "shards_launched":
+                            if(!el.cluster && el.cluster != 0) {
+                                el.cluster = '<span class="unknown">unknown</span>'
+                            }
+                            html += `<p class="clickable" onclick="showAld(${i})" id="alp-${i}">Cluster ${el.cluster} launched successfully with shards ${el.from} to ${el.to}</p>`;
+                            break;
+                    }
+
+                    html += `
+                        <div class="ald" style="display: none" id="ald-${i}">
+                            <strong>Timestamp: </strong><span class="ts">${new Date(el.ts)}</span>
+                        </div>
+                    </div>`
+
+                    i++
+                })
+
+                $("#action-logs").html(html);
+            } else {
+                $("#action-logs").html("Failed to fetch action logs");
+                console.error("Failed to fetch action logs");
             }
         }
 
@@ -132,7 +195,18 @@
                     status = "offline"
                     trigger()
                 })
-            }, 2000);
+            }, 3000);
+
+            // Fetch instance map
+            fetch("/instance-list", { credentials: "include" })
+            .then(r => r.json())
+            .then(r => instanceMap = r)
+            .then(_ => {
+                // Render cluster view
+                renderInstanceMap()
+                // Fetch action logs
+                fetchActionLogs()
+            })
         });
     </script>
 </html>
