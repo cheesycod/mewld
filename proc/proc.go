@@ -34,21 +34,21 @@ type InstanceList struct {
 	ShardCount           uint64
 	Config               config.CoreConfig
 	Dir                  string
-	Redis                *redis.Client   // Redis for publishing new messages, *not* subscribing
-	Ctx                  context.Context // Context for redis
-	startMutex           *sync.Mutex     // Internal mutex to prevent multiple instances from starting at the same time
+	Redis                *redis.Client   `json:"-"` // Redis for publishing new messages, *not* subscribing
+	Ctx                  context.Context `json:"-"` // Context for redis
+	startMutex           *sync.Mutex     `json:"-"` // Internal mutex to prevent multiple instances from starting at the same time
 	RollRestarting       bool            // whether or not we are roll restarting (rolling restart)
 	FullyUp              bool            // whether or not we are fully up
 }
 
 type Instance struct {
 	StartedAt    time.Time
-	SessionID    string   // Internally used to identify the instance
-	ClusterID    int      // ClusterID from clustermap
-	Shards       []uint64 // Shards that this instance is responsible for currently, should be equal to clustermap
-	Command      *exec.Cmd
-	Active       bool // Whether or not this instance is active
-	LockObserver bool // Whether or not observer should be 'locked'/not process a kill
+	SessionID    string    // Internally used to identify the instance
+	ClusterID    int       // ClusterID from clustermap
+	Shards       []uint64  // Shards that this instance is responsible for currently, should be equal to clustermap
+	Command      *exec.Cmd `json:"-"` // Command that is running on the instance
+	Active       bool      // Whether or not this instance is active
+	LockObserver bool      // Whether or not observer should be 'locked'/not process a kill
 }
 
 // Very simple status fetcher for "statuses" command

@@ -1,4 +1,132 @@
 <!DOCTYPE html>
 <html lang="en">
+    <head>
+        {{template "head"}}
+    </head>
+    <body>
+        <h1>Admin</h1>
+        <p>
+            This is the WebUI admin block
+        </p>
+        <span class="status"></span>
 
+        <h2>Restart mewld</h2>
+        <button onclick="restartMewdl()">Restart</button>
+
+        <h2>Add template to webui</h2>
+        <button onclick="addTemplate()">Add</button>
+
+        <h2>Remove template to webui</h2>
+        <button onclick="removeTemplate()">Remove</button>
+
+        <h2>Reload mewdl webui</h2>
+        <button onclick="reloadMewdl()">Reload</button>
+
+        <h1>Clusters</h1>
+
+        <div id="cluster-list">
+            {{range $cluster := .InstanceList.Map}}
+                <div class="cluster">
+                    <p class="cluster-para">{{$cluster.ID}}. {{$cluster.Name}}</p>
+                    <div class="cluster-pane">
+                        Loading cluster information...
+                    </div>
+                </div>
+            {{end}}
+        </div>
+    </body>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script>
+        async function restartMewdl() {
+            let res = await fetch("/restart", {
+                credentials: "include",
+                method: "POST"
+            });
+            if (res.ok) {
+                alert("Restarting mewld");
+            } else {
+                alert("Failed to restart mewld");
+            }
+        }
+
+        async function addTemplate() {
+            let templName = prompt("Enter template name")
+
+            if (templName) {
+                let res = await fetch(`/addtemplate?name=${templName}`, {
+                    credentials: "include",
+                    method: "POST",
+                });
+            }
+        }
+
+        async function removeTemplate() {
+            let templName = prompt("Enter template name")
+
+            if(templName == "head") {
+                alert("Cannot remove head template");
+                return;
+            }
+
+            if (templName) {
+                let res = await fetch(`/removetemplate?name=${templName}`, {
+                    credentials: "include",
+                    method: "POST",
+                });
+            }
+        }
+
+        async function reloadMewdl() {
+            let res = await fetch("/reload", {
+                credentials: "include",
+            });
+            if (res.ok) {
+                alert("Reloading mewdl");
+            } else {
+                alert("Failed to reload mewdl");
+            }
+        }
+
+        let status = "offline"
+
+        function trigger() {
+            if(status == "offline") {
+                $(".status").text("Offline");
+                $(".status").css("color", "red");
+            } else if(status == "online") {
+                $(".status").text("Online");
+                $(".status").css("color", "green");
+            } else {
+                $(".status").text("Unknown");
+                $(".status").css("color", "black");
+            }
+        }
+
+        $(document).ready(function() {
+            console.log("Starting connection health timer")
+
+            setInterval(function() {
+                const controller = new AbortController()
+
+                // 5 second timeout:
+                const timeoutId = setTimeout(() => controller.abort(), 500)
+
+
+                fetch("/ping", { signal: controller.signal })
+                .then(r => {
+                    if(r.ok) {
+                        status = "online"
+                    } else {
+                        status = "ping-failed"
+                    }
+
+                    trigger()
+                })
+                .catch(function() {
+                    status = "offline"
+                    trigger()
+                })
+            }, 2000);
+        });
+    </script>
 </html>
