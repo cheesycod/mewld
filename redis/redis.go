@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"mewld/config"
 	"mewld/proc"
+	"os"
 	"reflect"
 	"strconv"
 	"syscall"
@@ -88,6 +89,11 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 		}
 
 		switch cmd.Action {
+		case "restartproc":
+			log.Info("Restarting process: ", cmd.CommandId)
+			il.Acknowledge(cmd.CommandId)
+			il.KillAll()
+			os.Exit(1)
 		case "launch_next":
 			if il.RollRestarting {
 				// Get cluster id from args

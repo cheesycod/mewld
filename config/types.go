@@ -9,4 +9,5 @@ type CoreConfig struct {
 	Redis        string   `yaml:"redis"`
 	RedisChannel string   `yaml:"redis_channel"`
 	Interp       string   `yaml:"interp"`
+	AllowedIDS   []string `yaml:"allowed_ids"`
 }

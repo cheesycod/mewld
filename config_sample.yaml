@@ -8,3 +8,12 @@ module: MODULE_OR_FILE_FOR_CLUSTERER_TO_LAUNCH
 redis: REDIS_URL
 redis_channel: REDIS_CHANNEL_TO_SEND_MESSAGES_TO
 interp: The interpreter to run, if none, the module is directly ran
+
+# WEBUI
+allowed_ids:
+  - "563808552288780322"
+  - "455277032625012737"
+
+oauth:
+  client_id: 928702343732658256
+  client_secret: SECRETHERE

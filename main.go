@@ -121,6 +121,11 @@ func main() {
 	redish := redis.CreateHandler(config)
 	go redish.Start(&il)
 
+	go web.StartWebserver(web.WebData{
+		RedisHandler: &redish,
+		InstanceList: &il,
+	})
+
 	// Wait here until we get a signal
 	sigs := make(chan os.Signal, 1)
 
