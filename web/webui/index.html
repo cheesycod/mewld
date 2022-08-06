@@ -16,7 +16,7 @@
         <h2>Add template to webui</h2>
         <button onclick="addTemplate()">Add</button>
 
-        <h2>Remove template to webui</h2>
+        <h2>Remove template from webui</h2>
         <button onclick="removeTemplate()">Remove</button>
 
         <h2>Reload mewld webui</h2>
@@ -37,10 +37,154 @@
                 </div>
             {{end}}
         </div>
+
+        <h1>Guilds</h1>
+        <p>Get all guilds of this user.</p>
+        <button onclick="getGuilds()">Load Guilds</button>
+        <div class="guild-list"></div>
+
+        <h1>Permissions Config</h1>
+        <p>
+        A "permissions config" can be used to store config for the permissions of admin commands. 
+            
+        These can then be transferred to other bots and/or applied to other bots allowing for permissions to be quickly set on a beta instance and then easily pushed to a production one.
+        </p>
+        <button onclick="createConfig()">Create New Config</button>
+        <div id="config-list"></div>
     </body>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script>
         var instanceMap = null
+        var pconfigs = null
+
+        function renderConfigs() {
+            for(const cfgName in pconfigs) {
+                $("#config-list").append(`
+                <p>${cfgName}</p>
+                <p><strong>Config Data: </strong>${JSON.stringify(pconfigs[cfgName])}</p>
+
+                <button onclick="addConfigVar('${cfgName}')">Add Variable</button>
+            `)
+            }
+        }
+
+        async function addConfigVar(name) {
+            const varName = prompt("Variable Name (prefix with minus to remove)")
+
+            if(!varName) {
+                return
+            }
+
+            let res = await fetch(`/configs/vars?cfg=${name}&name=${varName}`, {
+                method: "POST",
+            })
+
+            if(res.ok) {
+                alert("Config created")
+                return
+            }
+
+            let text = await res.text()
+
+            console.log(text)
+            alert(text)
+        }
+
+        async function createConfig() {
+            let cfgName = prompt("Enter a name for the config")
+
+            if (!cfgName) {
+                return
+            }
+
+            let res = await fetch(`/configs?name=${cfgName}`, {
+                method: "POST",
+                credentials: "include"
+            })
+
+            if(res.ok) {
+                alert("Config created")
+                return
+            }
+
+            let text = await res.text()
+
+            console.log(text)
+            alert(text)
+        }
+
+        async function getGuilds() {
+            let res = await fetch("/guilds", {
+                credentials: "include",
+            })
+
+            let data = await res.json()
+
+            console.log(data)
+
+            console.log("Is cached: ", res.headers.get("X-Cached") == "true")
+
+            data.forEach(el => {
+                $(".guild-list").append(`
+                <p class="clickable" onclick="showAld('${el.id}')">${el.id} - ${el.name}</p>
+                <div class="guild-pane" style="display: none" id="ald-${el.id}">
+                    <strong>Fetch Guild Commands</strong><br/>
+                    <button onclick="fetchGuildCommands('${el.id}')">Fetch Commands</button>
+                    <div class="guild-commands" id="cmd-${el.id}"></div>
+                </div>
+            `)
+            })
+        }
+
+        async function fetchCommandPermissions(gid, id) {
+            // /applications/{application.id}/guilds/{guild.id}/commands/{command.id}/permissions
+            let res = await fetch(`/cperms?guildId=${gid}&commandId=${id}`)
+
+            let data = await res.json()
+
+            if(data.message) {
+                alert(data.message)
+                return
+            }
+
+            $(`#cmd-${id}`).html(JSON.stringify(data))
+        }
+
+        async function fetchGuildCommands(id) {
+            let res = await fetch(`/commands?guildId=${id}`)
+
+            if(!res.ok) {
+                alert("Failed to fetch commands")
+                return
+            }
+
+            let data = await res.json()
+
+            if(data.code) {
+                alert(data.message)
+                return
+            }
+
+            var fHtml = ""
+
+            data.forEach(el => {
+                html = `
+<strong>Command ID: </strong>${el.id}<br/>
+<strong>Command Name: </strong>${el.name}<br/>
+<p>${el.description}</p> 
+<br/>
+<strong>Fetch command permissions</strong><br/>
+<button onclick="fetchCommandPermissions('${id}', '${el.id}')">Fetch Permissions</button>
+<div id="cmd-${el.id}"></div>
+<br/><br/>
+                `
+                console.log(el)
+
+                fHtml += html
+            })
+
+            $(`#cmd-${id}`).html(fHtml)
+        }
 
         async function restartMewdl() {
             let p = prompt("Are you sure you want to restart mewdl (Yes/No)");
@@ -116,6 +260,13 @@
 
         function renderInstanceMap() {
             instanceMap.Instances.forEach(i => {
+                $(`#c-${i.ClusterID}`).html(`
+<strong>Session ID:</strong> ${i.SessionID}<br/>
+<strong>Shards:</strong> ${i.Shards.join(', ')}<br/>
+<strong>Started At:</strong> ${i.StartedAt}<br/>
+<strong>Active:</strong> ${i.Active}<br/>
+                `);
+                $(`#c-${i.ClusterID}`).addClass(i.Active ? "c-active" : "c-inactive");
                 console.log(i)
             })
         }
@@ -146,18 +297,25 @@
 
                     html += "<div>"
 
+                    ald = ""
+
                     switch (el.event) {
                         case "shards_launched":
                             if(!el.cluster && el.cluster != 0) {
                                 el.cluster = '<span class="unknown">unknown</span>'
                             }
-                            html += `<p class="clickable" onclick="showAld(${i})" id="alp-${i}">Cluster ${el.cluster} launched successfully with shards ${el.from} to ${el.to}</p>`;
+                            html += `<p class="clickable" onclick="showAld(${i})" id="alp-${i}">Cluster ${el.cluster} launched successfully</p>`;
+                            ald += `<strong>Cluster:</strong> ${el.cluster}<br/><strong>From shard:</strong> ${el.from}<br/><strong>To shard:</strong> ${el.to}`;
+                            break;
+                        default:
+                            html += `<p class="clickable" onclick="showAld(${i})" id="alp-${i}">Unknown event: ${JSON.stringify(el)}</p>`;
                             break;
                     }
 
                     html += `
                         <div class="ald" style="display: none" id="ald-${i}">
-                            <strong>Timestamp: </strong><span class="ts">${new Date(el.ts)}</span>
+                            <strong>Timestamp: </strong><span class="ts">${new Date(el.ts/1000)}</span><br/>
+                            ${ald}
                         </div>
                     </div>`
 
@@ -195,7 +353,7 @@
                     status = "offline"
                     trigger()
                 })
-            }, 3000);
+            }, 5000);
 
             // Fetch instance map
             fetch("/instance-list", { credentials: "include" })
@@ -206,6 +364,15 @@
                 renderInstanceMap()
                 // Fetch action logs
                 fetchActionLogs()
+            })
+
+            // Fetch permission configs
+            fetch("/configs", { credentials: "include" })
+            .then(r => r.json())
+            .then(r => {
+                pconfigs = r
+                // Render config view
+                renderConfigs()
             })
         });
     </script>
