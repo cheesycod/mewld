@@ -56,9 +56,10 @@ type Instance struct {
 }
 
 type ShardHealth struct {
-	ShardID uint64
-	Up      bool
-	Latency float64 // optional, send if possible
+	ShardID uint64  `json:"shard_id"`
+	Up      bool    `json:"up"`
+	Latency float64 `json:"latency"` // optional, send if possible
+	Guilds  uint64  `json:"guilds"`
 }
 
 type DiagResponse struct {
@@ -80,6 +81,7 @@ func (i *Instance) Status() string {
 type diagPayload struct {
 	ClusterID int    `json:"id"`
 	Nonce     string `json:"nonce"`
+	Diag      bool   `json:"diag"`
 }
 
 func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
@@ -88,6 +90,7 @@ func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 	var diagPayload = diagPayload{
 		ClusterID: i.ClusterID,
 		Nonce:     nonce,
+		Diag:      true,
 	}
 
 	diagBytes, err := json.Marshal(diagPayload)
@@ -96,7 +99,11 @@ func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 		return nil, err
 	}
 
-	l.Redis.Publish(l.Ctx, l.Config.RedisChannel+"_diag", diagBytes)
+	err = l.Redis.Publish(l.Ctx, l.Config.RedisChannel, diagBytes).Err()
+
+	if err != nil {
+		return nil, err
+	}
 
 	// Wait for diagnostic message from channel with timeout
 

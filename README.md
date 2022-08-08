@@ -39,4 +39,4 @@ Finish documenting redis and bug fixes
 
 ## Diagnostics
 
-Whenever a diagnostic is sent over the ``$CHANNEL_diag`` channel, the cluster must respond with a ``diag`` (see Operations table) within 10 seconds.
+Whenever a diagnostic is sent over the ``$CHANNEL`` channel, the cluster must respond with a ``diag`` (see Operations table) within 10 seconds. **A diagnostic can be identified based on the existence of a ``diag`` key**
