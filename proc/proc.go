@@ -100,7 +100,7 @@ func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 
 	// Wait for diagnostic message from channel with timeout
 
-	ticker := time.NewTicker(time.Second * 10)
+	ticker := time.NewTicker(time.Second * 120)
 
 	for {
 		select {

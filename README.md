@@ -31,7 +31,7 @@ Output    string         `json:"output,omitempty"`
 | statuses         | Gets the statuses of all clusters. Currently a *internal* API |            |
 | shutdown         | Shuts down the entire bot and lets systemctl start it up again if needed | |
 | restartproc      | Shuts down bot with error code so systemctl restarts it automatically |    |
-| diag             | The cluster must respond with a ``proc.DiagResponse`` payload. This is used as a diagnostic by the clusterer and may be used in the future for more important actions | |
+| diag             | The cluster must respond with a ``proc.DiagResponse`` payload. This is used as a diagnostic by the clusterer and may be used in the future for more important actions. | |
 
 ## TODO
 
