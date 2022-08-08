@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -300,6 +302,46 @@ func StartWebserver(webData WebData) {
 					break
 				}
 			}
+		},
+	))
+
+	r.GET("/cluster-health", loginRoute(
+		webData,
+		func(c *gin.Context, sess *loginDat) {
+			var cid = c.Query("cid")
+
+			if cid == "" {
+				cid = "0"
+			}
+
+			cInt, err := strconv.Atoi(cid)
+
+			if err != nil {
+				c.JSON(400, gin.H{
+					"error": "Invalid cid",
+				})
+				return
+			}
+
+			instance := webData.InstanceList.InstanceByID(cInt)
+
+			if instance == nil {
+				c.JSON(400, gin.H{
+					"error": "Invalid cid",
+				})
+				return
+			}
+
+			cluster, err := webData.InstanceList.ScanShards(instance)
+
+			if err != nil {
+				c.JSON(400, gin.H{
+					"error": err.Error(),
+				})
+				return
+			}
+
+			c.JSON(200, cluster)
 		},
 	))
 
@@ -626,6 +668,150 @@ func StartWebserver(webData WebData) {
 
 			c.Header("Content-Type", "application/json")
 			c.String(200, string(body))
+		},
+	))
+
+	// Mutex for cperm update
+	var cpermUpd = &sync.Mutex{}
+
+	r.POST("/cperms", loginRoute(
+		webData,
+		func(c *gin.Context, sess *loginDat) {
+			defer cpermUpd.Unlock()
+			cpermUpd.Lock()
+
+			vars := c.Query("var")
+
+			if vars == "" {
+				c.JSON(400, gin.H{
+					"message": "var is required",
+				})
+				return
+			}
+
+			cmd := c.Query("cmd")
+
+			if cmd == "" {
+				c.JSON(400, gin.H{
+					"message": "cmd is required",
+				})
+				return
+			}
+
+			cfgFile := c.Query("cfg")
+
+			if cfgFile == "" {
+				c.JSON(400, gin.H{
+					"message": "cfg is required",
+				})
+				return
+			}
+
+			dirname, err := os.UserHomeDir()
+
+			if err != nil {
+				c.JSON(400, gin.H{
+					"message": "Could not get user home dir",
+				})
+				return
+			}
+
+			// Check if the config exists
+			if _, err := os.Stat(dirname + "/mewld-pconfig/" + cfgFile); err != nil {
+				c.JSON(400, gin.H{
+					"message": "Config does not exist",
+				})
+				return
+			}
+
+			// Check if the var exists
+			if _, err := os.Stat(dirname + "/mewld-pconfig/" + cfgFile + "/vars"); err != nil {
+				c.JSON(400, gin.H{
+					"message": "Config does not exist",
+				})
+				return
+			} else {
+				file, err := os.ReadFile(dirname + "/mewld-pconfig/" + cfgFile + "/vars")
+
+				if err != nil {
+					c.JSON(400, gin.H{
+						"message": err.Error(),
+					})
+					return
+				}
+
+				var vars []string
+
+				err = json.Unmarshal(file, &vars)
+
+				if err != nil {
+					c.JSON(400, gin.H{
+						"message": err.Error(),
+					})
+					return
+				}
+			}
+
+			// Check if perms exists, if so add
+			if _, err := os.Stat(dirname + "/mewld-pconfig/" + cfgFile + "/perms"); err != nil {
+				os.WriteFile(dirname+"/mewld-pconfig/"+cfgFile+"/perms", []byte("[]"), 0644)
+			}
+
+			file, err := os.ReadFile(dirname + "/mewld-pconfig/" + cfgFile + "/perms")
+
+			if err != nil {
+				c.JSON(400, gin.H{
+					"message": err.Error(),
+				})
+				return
+			}
+
+			var config []pcfgconf
+
+			// Parse perms
+			err = json.Unmarshal(file, &config)
+
+			if err != nil {
+				c.JSON(400, gin.H{
+					"message": err.Error(),
+				})
+				return
+			}
+
+			flag := true
+
+			for i, v := range config {
+				if v.CmdName == cmd {
+					config[i].Roles = append(config[i].Roles, vars)
+					flag = false
+					break
+				}
+			}
+
+			if flag {
+				config = append(config, pcfgconf{CmdName: cmd, Roles: []string{vars}})
+			}
+
+			// Write perms
+			file, err = json.Marshal(config)
+
+			if err != nil {
+				c.JSON(400, gin.H{
+					"message": err.Error(),
+				})
+				return
+			}
+
+			err = os.WriteFile(dirname+"/mewld-pconfig/"+cfgFile+"/perms", file, 0644)
+
+			if err != nil {
+				c.JSON(400, gin.H{
+					"message": err.Error(),
+				})
+				return
+			}
+
+			c.String(200, "OK")
 		},
 	))
 

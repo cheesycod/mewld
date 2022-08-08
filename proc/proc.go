@@ -4,6 +4,7 @@ package proc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"mewld/config"
 	"mewld/coreutils"
 	"os"
@@ -18,6 +19,8 @@ import (
 )
 
 var RollRestartChannel = make(chan int)
+
+var DiagChannel = make(chan DiagResponse)
 
 // Represents a "cluster" of instances.
 type ClusterMap struct {
@@ -52,6 +55,17 @@ type Instance struct {
 	LockObserver bool      // Whether or not observer should be 'locked'/not process a kill
 }
 
+type ShardHealth struct {
+	ShardID uint64
+	Up      bool
+	Latency float64 // optional, send if possible
+}
+
+type DiagResponse struct {
+	Nonce string
+	Data  []ShardHealth
+}
+
 // Very simple status fetcher for "statuses" command
 func (i *Instance) Status() string {
 	if i.Active {
@@ -60,6 +74,46 @@ func (i *Instance) Status() string {
 		return "initialized"
 	}
 	return "stopped"
+}
+
+// Internal payload for diagnostics
+type diagPayload struct {
+	ClusterID int    `json:"id"`
+	Nonce     string `json:"nonce"`
+}
+
+func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
+	var nonce = coreutils.RandomString(10)
+
+	var diagPayload = diagPayload{
+		ClusterID: i.ClusterID,
+		Nonce:     nonce,
+	}
+
+	diagBytes, err := json.Marshal(diagPayload)
+
+	if err != nil {
+		return nil, err
+	}
+
+	l.Redis.Publish(l.Ctx, l.Config.RedisChannel+"_diag", diagBytes)
+
+	// Wait for diagnostic message from channel with timeout
+
+	ticker := time.NewTicker(time.Second * 10)
+
+	for {
+		select {
+		case <-ticker.C:
+			ticker.Stop()
+			return nil, errors.New("Timeout")
+		case diag := <-DiagChannel:
+			if diag.Nonce == nonce {
+				ticker.Stop()
+				return diag.Data, nil
+			}
+		}
+	}
 }
 
 func (l *InstanceList) ActionLog(payload map[string]any) {
@@ -228,6 +282,15 @@ func (l *InstanceList) Cluster(i *Instance) *ClusterMap {
 	for _, c := range l.Map {
 		if c.ID == i.ClusterID {
 			return &c
+		}
+	}
+	return nil
+}
+
+func (l *InstanceList) InstanceByID(id int) *Instance {
+	for _, c := range l.Instances {
+		if c.ClusterID == id {
+			return c
 		}
 	}
 	return nil

@@ -69,17 +69,25 @@
         }
 
         function changeConfigForm(rid) {
-            alert(rid)
+            let role = document.querySelector(`#config-select-${rid}`).value
+
+            if(role) {
+                $(".active").each(function() {
+                    $(this).removeClass("active")
+                })
+                $(`#cfgrole-${role}-${rid}`).addClass("active")
+            }
         }
 
         function renderConfigSelect() {
             // Creates the config form
 
-            let randomId = Math.random().toString(36).substring(7)
+            let randomId = Math.random().toString(36).substring(9)
 
             let configList = `
-            <select id="config-select-${randomId}" onchange="changeConfigForm(${randomId})">
-                <option value="" disabled>Select Config</option>
+            <br/>
+            <select id="config-select-${randomId}" onchange="changeConfigForm('${randomId}')">
+                <option value="">Select A Config</option>
             `
 
             let configDiv = ""
@@ -88,16 +96,28 @@
                     <option value="${cfgName}">${cfgName}</option>
                 `
 
+                let varSelect = `<select id="config-vars-${cfgName}-${randomId}">`
+
+                pconfigs[cfgName].Vars.forEach(v => {
+                    varSelect += `
+                        <option value="${v}">${v}</option>
+                    `
+                })
+
+                varSelect += `</select>`
+
                 configDiv += `
                     <div id="cfgrole-${cfgName}-${randomId}" style="display: none">
-                        <strong>Select a role variable on ${cfgName}</strong>
+                        <br/><br/>
+                        <strong>Select a role variable on ${cfgName}</strong><br/>
+                        ${varSelect}
                     </div>
                 `
             }
 
             configList += `</select>`
 
-            return `${configList} ${configDiv}`
+            return {cfg: `${configList} ${configDiv}`, rid: randomId}
         }
 
         async function addConfigVar(name) {
@@ -200,6 +220,12 @@
             var fHtml = ""
 
             data.forEach(el => {
+                let dataCfg = renderConfigSelect();
+
+                let text = dataCfg.cfg;
+                let rid = dataCfg.rid;
+
+
                 html = `
 <strong>Command ID: </strong>${el.id}<br/>
 <strong>Command Name: </strong>${el.name}<br/>
@@ -207,12 +233,14 @@
 <br/>
 <strong>Fetch command permissions</strong><br/>
 <button onclick="fetchCommandPermissions('${id}', '${el.id}')">Fetch Permissions</button>
-<br/>
+<br/><br/>
 <strong>Add Role Permission</strong><br/>
-<button onclick="addRolePermission('${id}', '${el.name}')">Add Role Permission</button>
 <div id="role-perm-form">
-    ${renderConfigSelect()}
+    ${text}
+    <br/><br/>
+    <button onclick="addRolePermission('${el.name}', '${rid}')">Add Role Permission</button>
 </div>
+<br/>
 <div id="cmd-${el.id}"></div>
 <br/><br/>
                 `
@@ -224,19 +252,29 @@
             $(`#cmd-${id}`).html(fHtml)
         }
 
-        function addRolePermission(gid, name) {
-            let cfgName = prompt("Enter a config name")
+        async function addRolePermission(name, rid) {
+            let cfgName = document.querySelector(`#config-select-${rid}`).value
+
+            alert(cfgName)
 
             if(!cfgName) {
                 return
             }
 
-            let roleId = prompt("Enter a variable name (must be present in config)")
+            let roleId = document.querySelector(`#config-vars-${cfgName}-${rid}`).value
+
+            if(!roleId) {
+                return
+            }
             
-            let res = fetch(`/cperms?guildId=${gid}&cmd=${name}&var=${roleId}`, {
+            let res = await fetch(`/cperms?cmd=${name}&var=${roleId}&cfg=${cfgName}`, {
                 method: "POST",
                 credentials: "include"
             })
+
+            if(res.ok) {
+                alert("Config updated")
+            }
         }
 
         async function restartMewdl() {

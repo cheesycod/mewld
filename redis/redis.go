@@ -90,6 +90,23 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 		}
 
 		switch cmd.Action {
+		case "diag":
+			if str, ok := cmd.Output.(string); ok {
+				log.Info(str)
+
+				var diagPayload proc.DiagResponse
+
+				err := json.Unmarshal([]byte(str), &diagPayload)
+
+				if err != nil {
+					log.Error("Could not unmarshal diag message: ", err, ": ", str)
+					continue
+				}
+
+				proc.DiagChannel <- diagPayload
+			} else {
+				log.Error("Diagnostic message parse error: ", cmd.Output)
+			}
 		case "action_logs":
 			go il.ActionLog(cmd.Data)
 		case "restartproc":
