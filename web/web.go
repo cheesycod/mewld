@@ -559,7 +559,7 @@ func StartWebserver(webData WebData) {
 
 			os.Mkdir(dirname+"/mewld-pconfig/"+cfgFile, 0755)
 
-			os.WriteFile(dirname+"/mewld-pconfig/"+cfgFile+"/vars", []byte("{}"), 0644)
+			os.WriteFile(dirname+"/mewld-pconfig/"+cfgFile+"/vars", []byte("[]"), 0644)
 			os.WriteFile(dirname+"/mewld-pconfig/"+cfgFile+"/perms", []byte("[]"), 0644)
 
 			c.String(200, "OK")
@@ -897,7 +897,7 @@ func StartWebserver(webData WebData) {
 			return
 		}
 
-		webData.InstanceList.Redis.Set(webData.InstanceList.Ctx, sessionTok, string(jsonBytes), time.Minute*15)
+		webData.InstanceList.Redis.Set(webData.InstanceList.Ctx, sessionTok, string(jsonBytes), time.Minute*30)
 
 		// Set cookie
 		c.SetCookie("session", sessionTok, int(time.Hour.Seconds()), "/", "", false, true)

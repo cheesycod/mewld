@@ -68,6 +68,38 @@
             }
         }
 
+        function changeConfigForm(rid) {
+            alert(rid)
+        }
+
+        function renderConfigSelect() {
+            // Creates the config form
+
+            let randomId = Math.random().toString(36).substring(7)
+
+            let configList = `
+            <select id="config-select-${randomId}" onchange="changeConfigForm(${randomId})">
+                <option value="" disabled>Select Config</option>
+            `
+
+            let configDiv = ""
+            for(const cfgName in pconfigs) {
+                configList += `
+                    <option value="${cfgName}">${cfgName}</option>
+                `
+
+                configDiv += `
+                    <div id="cfgrole-${cfgName}-${randomId}" style="display: none">
+                        <strong>Select a role variable on ${cfgName}</strong>
+                    </div>
+                `
+            }
+
+            configList += `</select>`
+
+            return `${configList} ${configDiv}`
+        }
+
         async function addConfigVar(name) {
             const varName = prompt("Variable Name (prefix with minus to remove)")
 
@@ -175,6 +207,12 @@
 <br/>
 <strong>Fetch command permissions</strong><br/>
 <button onclick="fetchCommandPermissions('${id}', '${el.id}')">Fetch Permissions</button>
+<br/>
+<strong>Add Role Permission</strong><br/>
+<button onclick="addRolePermission('${id}', '${el.name}')">Add Role Permission</button>
+<div id="role-perm-form">
+    ${renderConfigSelect()}
+</div>
 <div id="cmd-${el.id}"></div>
 <br/><br/>
                 `
@@ -184,6 +222,21 @@
             })
 
             $(`#cmd-${id}`).html(fHtml)
+        }
+
+        function addRolePermission(gid, name) {
+            let cfgName = prompt("Enter a config name")
+
+            if(!cfgName) {
+                return
+            }
+
+            let roleId = prompt("Enter a variable name (must be present in config)")
+            
+            let res = fetch(`/cperms?guildId=${gid}&cmd=${name}&var=${roleId}`, {
+                method: "POST",
+                credentials: "include"
+            })
         }
 
         async function restartMewdl() {
