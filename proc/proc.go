@@ -49,15 +49,17 @@ type InstanceList struct {
 }
 
 type Instance struct {
-	StartedAt        time.Time
-	SessionID        string        // Internally used to identify the instance
-	ClusterID        int           // ClusterID from clustermap
-	Shards           []uint64      // Shards that this instance is responsible for currently, should be equal to clustermap
-	Command          *exec.Cmd     `json:"-"` // Command that is running on the instance
-	Active           bool          // Whether or not this instance is active
-	LockObserver     bool          // Whether or not observer should be 'locked'/not process a kill
+	StartedAt time.Time
+	SessionID string    // Internally used to identify the instance
+	ClusterID int       // ClusterID from clustermap
+	Shards    []uint64  // Shards that this instance is responsible for currently, should be equal to clustermap
+	Command   *exec.Cmd `json:"-"` // Command that is running on the instance
+	Active    bool      // Whether or not this instance is active
+	//LockObserver     bool          // Whether or not observer should be 'locked'/not process a kill
 	ClusterHealth    []ShardHealth // Cache of shard health from a ping
 	CurrentlyKilling bool          // Whether or not we are currently killing this instance
+
+	LockClusterTime *time.Time // Time at which we last locked the cluster
 }
 
 type ShardHealth struct {
@@ -70,6 +72,24 @@ type ShardHealth struct {
 type DiagResponse struct {
 	Nonce string
 	Data  []ShardHealth
+}
+
+func (i *Instance) LockObserver() bool {
+	if i.LockClusterTime == nil || time.Since(*i.LockClusterTime) < time.Second*60 {
+		return false
+	}
+
+	return true
+}
+
+func (i *Instance) LockCluster() {
+	lt := time.Now()
+
+	i.LockClusterTime = &lt
+}
+
+func (i *Instance) UnlockCluster() {
+	i.LockClusterTime = nil
 }
 
 // Very simple status fetcher for "statuses" command
@@ -225,6 +245,13 @@ func (l *InstanceList) RollingRestart() {
 	for _, i := range l.Instances {
 		log.Info("Rolling restart on cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
 
+		if i.LockObserver() {
+			// Cluster currently busy, skip
+			continue
+		}
+
+		i.LockCluster()
+
 		code := l.Stop(i)
 
 		if code == StopCodeRestartFailed {
@@ -234,6 +261,8 @@ func (l *InstanceList) RollingRestart() {
 
 		// Now start cluster again
 		l.Start(i)
+
+		i.UnlockCluster()
 
 		for {
 			id := <-RollRestartChannel
@@ -259,6 +288,7 @@ func (l *InstanceList) StartNext() {
 			log.Info("Going to start *next* cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") after delay of 5 seconds due to concurrency")
 			time.Sleep(time.Second * 5)
 			l.Start(i)
+			i.UnlockCluster() // Unlock cluster after starting
 			return
 		}
 	}
@@ -276,6 +306,7 @@ func (l *InstanceList) KillAll() {
 		} else {
 			log.Info("Killing cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ")")
 
+			i.LockCluster()
 			i.Command.Process.Kill()
 			i.Active = false
 			i.SessionID = ""
@@ -288,6 +319,8 @@ func (l *InstanceList) KillAll() {
 			continue
 		}
 		i.Command.Wait()
+
+		i.UnlockCluster()
 	}
 }
 
@@ -325,11 +358,15 @@ func (l *InstanceList) Stop(i *Instance) StopCode {
 
 	log.Info("Stopping cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
 
+	i.LockCluster()
+
 	i.Command.Process.Kill()
 
 	i.Active = false
 
 	i.SessionID = ""
+
+	i.UnlockCluster()
 
 	log.Info("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") stopped")
 
@@ -340,6 +377,8 @@ func (l *InstanceList) Start(i *Instance) {
 	// Mutex to prevent multiple instances from starting at the same time
 	l.startMutex.Lock()
 	defer l.startMutex.Unlock()
+
+	i.LockCluster()
 
 	i.StartedAt = time.Now()
 	l.LastClusterStartedAt = time.Now()
@@ -356,7 +395,7 @@ func (l *InstanceList) Start(i *Instance) {
 	cluster := l.Cluster(i)
 
 	if cluster == nil {
-		panic("Cluster not found")
+		log.Fatal("Cluster not found")
 	}
 
 	// Log mode, depends on bot to handle it
@@ -401,6 +440,8 @@ func (l *InstanceList) Start(i *Instance) {
 	// Spawn process
 	err = cmd.Start()
 
+	i.UnlockCluster()
+
 	if err != nil {
 		log.Error("Cluster "+cluster.Name+"("+strconv.Itoa(cluster.ID)+") failed to start", err)
 	}
@@ -425,7 +466,7 @@ func (l *InstanceList) PingCheck(i *Instance, sid string) {
 				return // Stop observer if instance is stopped
 			}
 
-			log.Info("Pinging cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") [automated ping check] at time: ", time.Now())
+			log.Debug("Pinging cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") [automated ping check] at time: ", time.Now())
 			if !i.Active {
 				log.Info("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") is not active. Stopping ping check.")
 				PingCheckStop <- i.ClusterID
@@ -450,19 +491,25 @@ func (l *InstanceList) PingCheck(i *Instance, sid string) {
 					"id":    i.ClusterID,
 				})
 
-				if i.LockObserver {
+				if i.LockObserver() {
 					// Oops, we have a locked observer
 					log.Error("Cluster locked, cannot restart ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
 					continue
 				}
 
 				log.Error("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") is not responding. Restarting.")
+
+				i.LockCluster()
+
 				currentlyKilling = true
 				time.Sleep(time.Second * 1)
 				l.Stop(i)
 				time.Sleep(time.Second * 3)
 				l.Start(i)
 				currentlyKilling = false
+
+				i.UnlockCluster()
+
 				return
 			}
 
@@ -491,7 +538,7 @@ func (l *InstanceList) Observe(i *Instance, sid string) {
 			return // Stop observer if instance is stopped
 		}
 
-		if i.LockObserver {
+		if i.LockObserver() {
 			log.Error("Cluster locked, cannot restart ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
 			return
 		}
@@ -502,6 +549,7 @@ func (l *InstanceList) Observe(i *Instance, sid string) {
 		}
 
 		i.Active = false
+		i.LockCluster()
 
 		log.Error("Cluster "+l.Cluster(i).Name+" ("+strconv.Itoa(l.Cluster(i).ID)+") died unexpectedly: ", err)
 
@@ -516,5 +564,7 @@ func (l *InstanceList) Observe(i *Instance, sid string) {
 		l.Stop(i)
 		time.Sleep(time.Second * 3)
 		l.Start(i)
+
+		i.UnlockCluster()
 	}
 }

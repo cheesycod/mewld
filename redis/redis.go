@@ -231,15 +231,17 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 
 					il.Acknowledge(cmd.CommandId)
 
-					i.LockObserver = true
+					i.LockCluster()
 
 					err := il.Stop(i)
 
 					if err == proc.StopCodeNormal {
 						il.Start(i)
+					} else {
+						log.Error("Could not stop instance: ", err)
 					}
 
-					i.LockObserver = false
+					i.UnlockCluster()
 
 					break
 				}
