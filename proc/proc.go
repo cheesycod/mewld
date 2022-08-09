@@ -472,7 +472,7 @@ func (l *InstanceList) PingCheck(i *Instance, sid string) {
 				return // Stop observer if instance is stopped
 			}
 
-			log.Debug("Pinging cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") [automated ping check] at time: ", time.Now())
+			log.Info("Pinging cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") [automated ping check] at time: ", time.Now())
 			if !i.Active {
 				log.Info("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") is not active. Stopping ping check.")
 				PingCheckStop <- i.ClusterID
