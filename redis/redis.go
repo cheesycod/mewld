@@ -115,23 +115,37 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 			il.KillAll()
 			os.Exit(1)
 		case "launch_next":
-			if il.RollRestarting {
-				// Get cluster id from args
-				typeOfId := reflect.TypeOf(cmd.Args["id"])
+			// Get cluster id from args
+			typeOfId := reflect.TypeOf(cmd.Args["id"])
 
-				log.Info("Got launch_next command for cluster ", cmd.Args["id"], " (", typeOfId, ")")
+			log.Info("Got launch_next command for cluster ", cmd.Args["id"], " (", typeOfId, ")")
 
-				clusterId, ok := cmd.Args["id"].(float64)
+			clusterId, ok := cmd.Args["id"].(float64)
 
-				if !ok {
-					log.Error("Could not get cluster id from args: ", cmd.Args["id"])
+			if !ok {
+				log.Error("Could not get cluster id from args: ", cmd.Args["id"])
+
+				// Continue if its roll restarting, we cant continue
+				if il.RollRestarting {
+					continue
+				}
+			} else {
+				instance := il.InstanceByID(int(clusterId))
+
+				if instance == nil {
+					log.Error("Could not find instance with id: ", clusterId)
 					continue
 				}
 
+				instance.LaunchedFully = true
+			}
+
+			if il.RollRestarting {
 				// Push to proc.RollRestartChannel
 				proc.RollRestartChannel <- int(clusterId)
 				continue
 			}
+
 			il.StartNext()
 		case "rollingrestart":
 			go func() {

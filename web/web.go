@@ -332,16 +332,26 @@ func StartWebserver(webData WebData) {
 				return
 			}
 
-			cluster, err := webData.InstanceList.ScanShards(instance)
+			if instance.ClusterHealth == nil {
+				if !instance.LaunchedFully {
+					c.JSON(400, gin.H{
+						"error": "Instance not fully up",
+					})
+					return
+				}
+				ch, err := webData.InstanceList.ScanShards(instance)
 
-			if err != nil {
-				c.JSON(400, gin.H{
-					"error": err.Error(),
-				})
-				return
+				if err != nil {
+					c.JSON(400, gin.H{
+						"error": "Error scanning shards: " + err.Error(),
+					})
+					return
+				}
+
+				instance.ClusterHealth = ch
 			}
 
-			c.JSON(200, cluster)
+			c.JSON(200, instance.ClusterHealth)
 		},
 	))
 

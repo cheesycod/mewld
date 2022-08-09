@@ -60,6 +60,8 @@ type Instance struct {
 	CurrentlyKilling bool          // Whether or not we are currently killing this instance
 
 	LockClusterTime *time.Time // Time at which we last locked the cluster
+
+	LaunchedFully bool // Whether or not we have launched the instance fully (till launch_next)
 }
 
 type ShardHealth struct {
@@ -239,6 +241,10 @@ func (l *InstanceList) RollingRestart() {
 		log.Error("Not fully up, not rolling restart")
 		return
 	}
+
+	go l.ActionLog(map[string]any{
+		"event": "rolling_restart",
+	})
 
 	l.RollRestarting = true
 
