@@ -421,6 +421,7 @@ func (l *InstanceList) PingCheck(i *Instance, sid string) {
 		select {
 		case <-ticker.C:
 			if i.SessionID == "" || sid != i.SessionID {
+				log.Info("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") is no longer eligible for ping checks from this goroutine")
 				return // Stop observer if instance is stopped
 			}
 
