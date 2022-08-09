@@ -383,7 +383,12 @@ func (l *InstanceList) Start(i *Instance) {
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = os.Environ()
+
+	env := os.Environ()
+
+	env = append(env, "MEWLD_CHANNEL="+l.Config.RedisChannel)
+
+	cmd.Env = env
 
 	i.Command = cmd
 
