@@ -40,3 +40,9 @@ Finish documenting redis and bug fixes
 ## Diagnostics
 
 Whenever a diagnostic is sent over the ``$CHANNEL`` channel, the cluster must respond with a ``diag`` (see Operations table) within 10 seconds. **A diagnostic can be identified based on the existence of a ``diag`` key**
+
+## FAQ
+
+- Why are there so many ``PingCheckStop <- i.ClusterID``?
+
+**Answer:** To ensure that no erroneous ping checks are still running in background thus leading to random cluster death.

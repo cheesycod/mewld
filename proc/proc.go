@@ -18,9 +18,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var RollRestartChannel = make(chan int)
-
-var DiagChannel = make(chan DiagResponse)
+var (
+	RollRestartChannel = make(chan int)
+	DiagChannel        = make(chan DiagResponse)
+	PingCheckStop      = make(chan int) // Channel to stop the ping checker
+	ErrTimeout         = errors.New("timeoutError")
+)
 
 // Represents a "cluster" of instances.
 type ClusterMap struct {
@@ -46,13 +49,15 @@ type InstanceList struct {
 }
 
 type Instance struct {
-	StartedAt    time.Time
-	SessionID    string    // Internally used to identify the instance
-	ClusterID    int       // ClusterID from clustermap
-	Shards       []uint64  // Shards that this instance is responsible for currently, should be equal to clustermap
-	Command      *exec.Cmd `json:"-"` // Command that is running on the instance
-	Active       bool      // Whether or not this instance is active
-	LockObserver bool      // Whether or not observer should be 'locked'/not process a kill
+	StartedAt        time.Time
+	SessionID        string        // Internally used to identify the instance
+	ClusterID        int           // ClusterID from clustermap
+	Shards           []uint64      // Shards that this instance is responsible for currently, should be equal to clustermap
+	Command          *exec.Cmd     `json:"-"` // Command that is running on the instance
+	Active           bool          // Whether or not this instance is active
+	LockObserver     bool          // Whether or not observer should be 'locked'/not process a kill
+	ClusterHealth    []ShardHealth // Cache of shard health from a ping
+	CurrentlyKilling bool          // Whether or not we are currently killing this instance
 }
 
 type ShardHealth struct {
@@ -113,7 +118,7 @@ func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 		select {
 		case <-ticker.C:
 			ticker.Stop()
-			return nil, errors.New("Timeout")
+			return nil, ErrTimeout
 		case diag := <-DiagChannel:
 			if diag.Nonce == nonce {
 				ticker.Stop()
@@ -270,6 +275,7 @@ func (l *InstanceList) KillAll() {
 			log.Error("Cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ") is not running")
 		} else {
 			log.Info("Killing cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ")")
+
 			i.Command.Process.Kill()
 			i.Active = false
 			i.SessionID = ""
@@ -402,6 +408,80 @@ func (l *InstanceList) Start(i *Instance) {
 	i.Active = true
 
 	go l.Observe(i, i.SessionID)
+
+	go l.PingCheck(i, i.SessionID)
+}
+
+func (l *InstanceList) PingCheck(i *Instance, sid string) {
+	ticker := time.NewTicker(time.Second * time.Duration(l.Config.PingInterval))
+
+	currentlyKilling := false
+
+	for {
+		select {
+		case <-ticker.C:
+			if i.SessionID == "" || sid != i.SessionID {
+				return // Stop observer if instance is stopped
+			}
+
+			log.Info("Pinging cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") [automated ping check] at time: ", time.Now())
+			if !i.Active {
+				log.Info("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") is not active. Stopping ping check.")
+				PingCheckStop <- i.ClusterID
+				return
+			}
+
+			if i.Command == nil {
+				log.Error("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") is not running. Stopping ping check.")
+				PingCheckStop <- i.ClusterID
+				return
+			}
+
+			// Get cluster health
+			clusterHealth, err := l.ScanShards(i)
+
+			if err == ErrTimeout {
+				// Cluster is not responding, restart it
+
+				// Log to action logs
+				go l.ActionLog(map[string]any{
+					"event": "ping_failure",
+					"id":    i.ClusterID,
+				})
+
+				if i.LockObserver {
+					// Oops, we have a locked observer
+					log.Error("Cluster locked, cannot restart ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
+					continue
+				}
+
+				log.Error("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") is not responding. Restarting.")
+				currentlyKilling = true
+				time.Sleep(time.Second * 1)
+				l.Stop(i)
+				time.Sleep(time.Second * 3)
+				l.Start(i)
+				currentlyKilling = false
+				return
+			}
+
+			if err != nil {
+				log.Error("Ping error on cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, "): ", err)
+			}
+
+			i.ClusterHealth = clusterHealth
+		case c := <-PingCheckStop:
+			if currentlyKilling {
+				// Currently killing, don't stop
+				continue
+			}
+
+			if c == i.ClusterID {
+				log.Info("Recieved request to end ping checks for cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
+				return
+			}
+		}
+	}
 }
 
 func (l *InstanceList) Observe(i *Instance, sid string) {

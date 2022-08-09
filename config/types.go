@@ -17,4 +17,5 @@ type CoreConfig struct {
 	Interp       string   `yaml:"interp"`
 	AllowedIDS   []string `yaml:"allowed_ids"`
 	Oauth        oauth    `yaml:"oauth"`
+	PingInterval int      `yaml:"ping_interval"`
 }

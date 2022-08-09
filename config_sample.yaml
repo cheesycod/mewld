@@ -18,3 +18,5 @@ oauth:
   client_id: 928702343732658256
   client_secret: SECRETHERE
   redirect_url: http://localhost:1293 # must end in /confirm
+
+ping_interval: 10 # 10 seconds (for testing, change this)
