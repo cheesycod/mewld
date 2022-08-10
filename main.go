@@ -81,22 +81,15 @@ func main() {
 		shardCount.Shards = coreutils.ParseUint64(os.Getenv("SHARD_COUNT"))
 	}
 
-	// Get cluster names from assets/data/names.txt
-	clusterNames, err := utils.ReadLines(config.Names)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	var perCluster uint64 = config.PerCluster
 
 	if os.Getenv("PER_CLUSTER") != "" {
 		perCluster = coreutils.ParseUint64(os.Getenv("PER_CLUSTER"))
 	}
 
-	log.Println("Cluster names:", clusterNames)
+	log.Println("Cluster names:", config.Names)
 
-	clusterMap := utils.GetClusterList(clusterNames, shardCount.Shards, perCluster)
+	clusterMap := utils.GetClusterList(config.Names, shardCount.Shards, perCluster)
 
 	il := proc.InstanceList{
 		Config:     config,

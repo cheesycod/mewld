@@ -14,9 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
-	"unicode"
 
 	log "github.com/sirupsen/logrus"
 
@@ -126,7 +124,15 @@ type WebData struct {
 
 func checkAuth(webData WebData, c *gin.Context) *loginDat {
 	// Get 'session' cookie
-	session, err := c.Cookie("session")
+
+	var session string
+	var err error
+
+	if c.GetHeader("X-Session") != "" {
+		session = c.GetHeader("X-Session")
+	} else {
+		session, err = c.Cookie("session")
+	}
 
 	if err != nil {
 		return nil
@@ -207,18 +213,6 @@ func templParse(filename string) string {
 	return string(fileBytes)
 }
 
-// pcfgconf is a struct containing the format of a permission config file
-type pcfgconf struct {
-	CmdName string   `json:"name"`  // The command name
-	Roles   []string `json:"roles"` // Variable names of the roles that should be allowed to use this command
-}
-
-// pcfg is a struct containing the format of a entire config file
-type pcfg struct {
-	Config []pcfgconf
-	Vars   []string // Variables for use in pcfgconfig
-}
-
 func StartWebserver(webData WebData) {
 	// Create webserver using gin
 	r := gin.New()
@@ -240,6 +234,15 @@ func StartWebserver(webData WebData) {
 		)
 	}))
 	r.Use(gin.Recovery())
+	r.Use(cors())
+
+	// Wildcat route
+	r.OPTIONS("/*", func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", c.GetHeader("Origin"))
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, PATCH, DELETE")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-Session")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+	})
 
 	r.GET("/", loginRoute(
 		webData,
@@ -366,269 +369,6 @@ func StartWebserver(webData WebData) {
 		},
 	))
 
-	r.GET("/configs", loginRoute(
-		webData,
-		func(c *gin.Context, sess *loginDat) {
-			// Get every folder in ~/mewld-pconfig
-			dirname, err := os.UserHomeDir()
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": "Could not get user home dir",
-				})
-				return
-			}
-
-			files, err := os.ReadDir(dirname + "/mewld-pconfig")
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": err.Error(),
-				})
-				return
-			}
-
-			var cfgs = make(map[string]pcfg)
-
-			for _, file := range files {
-				log.Info(file.Name())
-				cfg := pcfg{}
-
-				// Read vars file
-				varsB, err := os.ReadFile(dirname + "/mewld-pconfig/" + file.Name() + "/vars")
-
-				if err != nil {
-					c.JSON(400, gin.H{
-						"message": err.Error(),
-					})
-					return
-				}
-
-				var vars []string
-
-				// Parse vars
-				err = json.Unmarshal(varsB, &vars)
-
-				if err != nil {
-					c.JSON(400, gin.H{
-						"message": err.Error(),
-					})
-					return
-				}
-
-				cfg.Vars = vars
-
-				// Read perms file
-				permsB, err := os.ReadFile(dirname + "/mewld-pconfig/" + file.Name() + "/perms")
-
-				if err != nil {
-					c.JSON(400, gin.H{
-						"message": err.Error(),
-					})
-					return
-				}
-
-				var config []pcfgconf
-
-				// Parse perms
-				err = json.Unmarshal(permsB, &config)
-
-				if err != nil {
-					c.JSON(400, gin.H{
-						"message": err.Error(),
-					})
-					return
-				}
-
-				cfg.Config = config
-
-				cfgs[file.Name()] = cfg
-			}
-
-			c.JSON(200, cfgs)
-		},
-	))
-
-	r.POST("/configs/vars", loginRoute(
-		webData,
-		func(c *gin.Context, sess *loginDat) {
-			cfgFile := c.Query("cfg")
-
-			for _, ch := range cfgFile {
-				if !unicode.IsLetter(ch) && !unicode.IsNumber(ch) && ch != '_' {
-					c.JSON(400, gin.H{
-						"message": "name cannot contain non letters/numbers",
-					})
-					return
-				}
-			}
-
-			dirname, err := os.UserHomeDir()
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": "Could not get user home dir",
-				})
-				return
-			}
-
-			// Check if the config exists
-			if _, err := os.Stat(dirname + "/mewld-pconfig/" + cfgFile); err != nil {
-				c.JSON(400, gin.H{
-					"message": "Could not get config: " + err.Error(),
-				})
-				return
-			}
-
-			// Read vars file
-			varsB, err := os.ReadFile(dirname + "/mewld-pconfig/" + cfgFile + "/vars")
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": err.Error(),
-				})
-				return
-			}
-
-			var vars []string
-
-			// Parse vars
-			err = json.Unmarshal(varsB, &vars)
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": err.Error(),
-				})
-				return
-			}
-
-			name := c.Query("name")
-
-			if name == "" {
-				c.JSON(400, gin.H{
-					"message": "name cannot be empty",
-				})
-				return
-			}
-
-			newVars := []string{}
-
-			if strings.HasPrefix(name, "-") {
-				// Remove var
-				nameClean := strings.TrimPrefix(name, "-")
-				for _, v := range vars {
-					if v != nameClean {
-						newVars = append(newVars, v)
-						break
-					}
-				}
-
-			} else {
-				// Add var
-				newVars = append(vars, name)
-			}
-
-			bytes, err := json.Marshal(newVars)
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": err.Error(),
-				})
-				return
-			}
-
-			// Write vars file
-			os.WriteFile(dirname+"/mewld-pconfig/"+cfgFile+"/vars", bytes, 0644)
-		},
-	))
-
-	r.POST("/configs", loginRoute(
-		webData,
-		func(c *gin.Context, sess *loginDat) {
-			cfgFile := c.Query("name")
-
-			for _, ch := range cfgFile {
-				if !unicode.IsLetter(ch) && !unicode.IsNumber(ch) && ch != '_' {
-					c.JSON(400, gin.H{
-						"message": "name cannot contain non letters/numbers",
-					})
-					return
-				}
-			}
-
-			dirname, err := os.UserHomeDir()
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": "Could not get user home dir",
-				})
-				return
-			}
-
-			// Check if cfgFile exists and that it is a directory
-			if fi, err := os.Stat(dirname + "/mewld-pconfig"); err != nil {
-				// Create the config folder
-				err = os.Mkdir(dirname+"/mewld-pconfig", 0755)
-
-				if err != nil {
-					c.JSON(400, gin.H{
-						"message": err.Error(),
-					})
-					return
-				}
-			} else {
-				if !fi.IsDir() {
-					// Remove the file
-					err = os.Remove(dirname + "/mewld-pconfig")
-
-					if err != nil {
-						c.JSON(400, gin.H{
-							"message": err.Error(),
-						})
-						return
-					}
-
-					// Create the config folder
-					err = os.Mkdir(dirname+"/mewld-pconfig", 0755)
-
-					if err != nil {
-						c.JSON(400, gin.H{
-							"message": err.Error(),
-						})
-						return
-					}
-				}
-			}
-
-			// Check if the config exists
-			if fi, err := os.Stat(dirname + "/mewld-pconfig/" + cfgFile); err == nil {
-				if !fi.IsDir() {
-					// Remove the file
-					err = os.Remove(dirname + "/mewld-pconfig/" + cfgFile)
-
-					if err != nil {
-						c.JSON(400, gin.H{
-							"message": err.Error(),
-						})
-						return
-					}
-				} else {
-					c.JSON(400, gin.H{
-						"message": "Config already exists",
-					})
-					return
-				}
-			}
-
-			os.Mkdir(dirname+"/mewld-pconfig/"+cfgFile, 0755)
-
-			os.WriteFile(dirname+"/mewld-pconfig/"+cfgFile+"/vars", []byte("[]"), 0644)
-			os.WriteFile(dirname+"/mewld-pconfig/"+cfgFile+"/perms", []byte("[]"), 0644)
-
-			c.String(200, "OK")
-		},
-	))
-
 	r.GET("/cperms", loginRoute(
 		webData,
 		func(c *gin.Context, sess *loginDat) {
@@ -689,150 +429,6 @@ func StartWebserver(webData WebData) {
 
 			c.Header("Content-Type", "application/json")
 			c.String(200, string(body))
-		},
-	))
-
-	// Mutex for cperm update
-	var cpermUpd = &sync.Mutex{}
-
-	r.POST("/cperms", loginRoute(
-		webData,
-		func(c *gin.Context, sess *loginDat) {
-			defer cpermUpd.Unlock()
-			cpermUpd.Lock()
-
-			vars := c.Query("var")
-
-			if vars == "" {
-				c.JSON(400, gin.H{
-					"message": "var is required",
-				})
-				return
-			}
-
-			cmd := c.Query("cmd")
-
-			if cmd == "" {
-				c.JSON(400, gin.H{
-					"message": "cmd is required",
-				})
-				return
-			}
-
-			cfgFile := c.Query("cfg")
-
-			if cfgFile == "" {
-				c.JSON(400, gin.H{
-					"message": "cfg is required",
-				})
-				return
-			}
-
-			dirname, err := os.UserHomeDir()
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": "Could not get user home dir",
-				})
-				return
-			}
-
-			// Check if the config exists
-			if _, err := os.Stat(dirname + "/mewld-pconfig/" + cfgFile); err != nil {
-				c.JSON(400, gin.H{
-					"message": "Config does not exist",
-				})
-				return
-			}
-
-			// Check if the var exists
-			if _, err := os.Stat(dirname + "/mewld-pconfig/" + cfgFile + "/vars"); err != nil {
-				c.JSON(400, gin.H{
-					"message": "Config does not exist",
-				})
-				return
-			} else {
-				file, err := os.ReadFile(dirname + "/mewld-pconfig/" + cfgFile + "/vars")
-
-				if err != nil {
-					c.JSON(400, gin.H{
-						"message": err.Error(),
-					})
-					return
-				}
-
-				var vars []string
-
-				err = json.Unmarshal(file, &vars)
-
-				if err != nil {
-					c.JSON(400, gin.H{
-						"message": err.Error(),
-					})
-					return
-				}
-			}
-
-			// Check if perms exists, if so add
-			if _, err := os.Stat(dirname + "/mewld-pconfig/" + cfgFile + "/perms"); err != nil {
-				os.WriteFile(dirname+"/mewld-pconfig/"+cfgFile+"/perms", []byte("[]"), 0644)
-			}
-
-			file, err := os.ReadFile(dirname + "/mewld-pconfig/" + cfgFile + "/perms")
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": err.Error(),
-				})
-				return
-			}
-
-			var config []pcfgconf
-
-			// Parse perms
-			err = json.Unmarshal(file, &config)
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": err.Error(),
-				})
-				return
-			}
-
-			flag := true
-
-			for i, v := range config {
-				if v.CmdName == cmd {
-					config[i].Roles = append(config[i].Roles, vars)
-					flag = false
-					break
-				}
-			}
-
-			if flag {
-				config = append(config, pcfgconf{CmdName: cmd, Roles: []string{vars}})
-			}
-
-			// Write perms
-			file, err = json.Marshal(config)
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": err.Error(),
-				})
-				return
-			}
-
-			err = os.WriteFile(dirname+"/mewld-pconfig/"+cfgFile+"/perms", file, 0644)
-
-			if err != nil {
-				c.JSON(400, gin.H{
-					"message": err.Error(),
-				})
-				return
-			}
-
-			c.String(200, "OK")
 		},
 	))
 
@@ -965,12 +561,21 @@ func StartWebserver(webData WebData) {
 
 	r.GET("/login", func(c *gin.Context) {
 		// Redirect via discord oauth2
-		c.Redirect(302, "https://discord.com/api/oauth2/authorize?client_id="+webData.InstanceList.Config.Oauth.ClientID+"&redirect_uri="+webData.InstanceList.Config.Oauth.RedirectURL+"/confirm&response_type=code&scope=identify%20guilds%20applications.commands.permissions.update&state="+c.Query("redirect"))
+		url := "https://discord.com/api/oauth2/authorize?client_id=" + webData.InstanceList.Config.Oauth.ClientID + "&redirect_uri=" + webData.InstanceList.Config.Oauth.RedirectURL + "/confirm&response_type=code&scope=identify%20guilds%20applications.commands.permissions.update&state=" + c.Query("api")
+
+		// For upcoming sveltekit webui rewrite
+		if c.Query("api") == "" {
+			c.Redirect(302, url)
+		} else {
+			c.String(200, url)
+		}
 	})
 
 	r.GET("/confirm", func(c *gin.Context) {
 		// Handle confirmation from discord oauth2
 		code := c.Query("code")
+
+		state := c.Query("state")
 
 		// Add form data
 		form := url.Values{}
@@ -1105,6 +710,21 @@ func StartWebserver(webData WebData) {
 		}
 
 		webData.InstanceList.Redis.Set(webData.InstanceList.Ctx, sessionTok, string(jsonBytes), time.Minute*30)
+
+		if strings.HasPrefix(state, "api") {
+			split := strings.Split(state, "@")
+
+			if len(split) != 3 {
+				log.Error("Invalid state")
+				c.String(http.StatusInternalServerError, "Invalid state")
+				return
+			}
+
+			url := split[1]
+			iUrl := split[2]
+
+			c.Redirect(302, url+"/ss?session="+sessionTok+"&instanceUrl="+iUrl)
+		}
 
 		// Set cookie
 		c.SetCookie("session", sessionTok, int(time.Hour.Seconds()), "/", "", false, true)

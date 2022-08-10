@@ -5,7 +5,27 @@ env:
   - "env/mongo.env"
   - "env/postgres.env"
   - "env/voting.env"
-names: assets/data/names.txt
+names: 
+  - Pika
+  - Eevee
+  - Bulbasaur
+  - Squirtle
+  - Blastoise
+  - Lugia
+  - Psyduck
+  - Meowth
+  - Solgareo
+  - Nihilego
+  - Piplip
+  - Snorlax
+  - Torchic
+  - Luvdisc
+  - Pelipper
+  - Charmander
+  - Charizard
+  - Mew
+  - Zamazenta
+  - Eternatus
 module: mew
 redis: 178.28.0.13:6379
 redis_channel: mewbot_clusters

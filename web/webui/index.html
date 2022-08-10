@@ -277,6 +277,31 @@
             }
         }
 
+        async function restartCluster(cid) {
+            let p = prompt("Are you sure you want to restart this cluster (Yes/No)");
+
+            if(p != "Yes") {
+                return;
+            }
+
+            let res = await fetch("/redis/pub", {
+                credentials: "include",
+                method: "POST",
+                body: JSON.stringify({
+                    "scope": "launcher",
+                    "action": "restart",
+                    "args": {
+                        "id": cid
+                    }  
+                })
+            });
+            if (res.ok) {
+                alert("Restarting mewld");
+            } else {
+                alert("Failed to restart mewld");
+            }
+        }
+
         async function restartMewdl() {
             let p = prompt("Are you sure you want to restart mewdl (Yes/No)");
 
@@ -367,8 +392,34 @@
                 `);
                 $(`#c-${i.ClusterID}`).addClass(i.Active ? "c-active" : "c-inactive");
 
-                $(`#c-${i.ClusterID}`).on("click", function(e) {
-                    alert("Clicked cluster!!!")
+                $(`#c-${i.ClusterID}`).on("click", async function(e) {
+                    $(`#c-${i.ClusterID}-health`).html("Fetching cluster health information...")
+
+                    let res = await fetch(`/cluster-health?cid=${i.ClusterID}`, {
+                        credentials: "include",
+                    });
+
+                    if(!res.ok) {
+                        alert("Failed to fetch cluster health")
+                    }
+
+                    let data = await res.json();
+
+                    console.log(data)
+
+                    let html = `<strong>Locked</strong>: ${data.locked}<br/>`
+
+                    let shardId = 0
+                    data.health.forEach(shard => {
+                        html += `
+<h4>Shard ${shardId}</h4>
+<strong>Latency: ${Math.round(shard.latency * 1000)} ms<strong><br/>
+<strong>Guilds: ${shard.guilds}<strong><br/>
+`
+                        shard++; // Next shard
+                    })
+
+                    $(`#c-${i.ClusterID}-health`).html(html)
                 })
                 console.log(i)
             })
