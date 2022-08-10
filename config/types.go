@@ -18,4 +18,5 @@ type CoreConfig struct {
 	AllowedIDS   []string `yaml:"allowed_ids"`
 	Oauth        oauth    `yaml:"oauth"`
 	PingInterval int      `yaml:"ping_interval"`
+	PerCluster   uint64   `yaml:"per_cluster"`
 }

@@ -1,13 +1,15 @@
-dir: mewbot
+dir: dir: mewbot
 override_dir:
 env:
-  - env1
-  - env2
-names: PATH_TO_CLUSTER_NAMES
-module: MODULE_OR_FILE_FOR_CLUSTERER_TO_LAUNCH
-redis: REDIS_URL
-redis_channel: REDIS_CHANNEL_TO_SEND_MESSAGES_TO
-interp: The interpreter to run, if none, the module is directly ran
+  - "env/bot.env"
+  - "env/mongo.env"
+  - "env/postgres.env"
+  - "env/voting.env"
+names: assets/data/names.txt
+module: mew
+redis: 178.28.0.13:6379
+redis_channel: mewbot_clusters
+interp: /usr/bin/python3.10
 
 # WEBUI
 allowed_ids:
@@ -15,8 +17,10 @@ allowed_ids:
   - "455277032625012737"
 
 oauth:
-  client_id: 928702343732658256
-  client_secret: SECRETHERE
-  redirect_url: http://localhost:1293 # must end in /confirm
+  client_id: 999908791061594194
+  client_secret: "SECRET HERE"
+  redirect_url: REDIRECT URL HERE
 
-ping_interval: 10 # 10 seconds (for testing, change this)
+ping_interval: 120 # 120 seconds (for testing, change this)
+
+per_cluster: 10 # Number of shards per cluster, can be overrided using ``PER_CLUSTER`` env var

@@ -88,7 +88,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var perCluster uint64 = 10
+	var perCluster uint64 = config.PerCluster
 
 	if os.Getenv("PER_CLUSTER") != "" {
 		perCluster = coreutils.ParseUint64(os.Getenv("PER_CLUSTER"))

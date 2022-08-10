@@ -158,7 +158,6 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 			for _, i := range il.Instances {
 				statusStruct := status{
 					Active:    i.Active,
-					Status:    i.Status(),
 					Name:      il.Cluster(i).Name,
 					StartedAt: i.StartedAt.Unix(),
 					ShardList: i.Shards,
@@ -245,7 +244,7 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 
 					il.Acknowledge(cmd.CommandId)
 
-					i.LockCluster()
+					i.Lock(il, "Redis.restart")
 
 					err := il.Stop(i)
 
@@ -255,7 +254,7 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 						log.Error("Could not stop instance: ", err)
 					}
 
-					i.UnlockCluster()
+					i.Unlock()
 
 					break
 				}

@@ -2,40 +2,49 @@
 
 Mewbot clusterer. Will be open source to help other large bot developers.
 
-Mewbot clusterer is rather generic and any python bot should be able to adapt to it without any changes to ``mewld``
+Mewbot clusterer is rather generic and any bot should be able to adapt to it without any changes to ``mewld``
 
-**$CHANNEL** in these docs is defined as the configured redis channel for the bot.
+## What is a cluster
+
+A cluster is a way to scale large discord bots by breaking them into seperate processes, each with a set of shards. ``mewld`` is an implementation of this system.
+
+## How it works
+
+- Shard count is retrieved using ``Get Gateway Bot``. This is then used to create a ``ClusterMap`` assigning each cluster a set of shards based on ``per_cluster`` in config.yaml. These ``ClusterMap``'s are then used to make a ``InstanceList`` of ``Instance`` structs.
+
+- First instance is then started, once this instance sends ``launch_next``, the next instance is then launched until every cluster is launched, the last cluster should also send a ``launch_next`` once fully ready
+
+- ``mewld`` also handles other tasks such as cluster management via its webui which also comes with (*upcoming*) support for application command permission configs (for private commands that should only be visible to specific roles in a support or staff server)
 
 ## Redis
 
 Mewld uses redis for communication with clusters.
 
-**Format:**
+**Data Format:**
 
-JSON with the following structure:
+JSON with the following structure (golang syntax to make updating docs simpler)
 
 ```go
 Scope     string         `json:"scope"`
 Action    string         `json:"action"`
 Args      map[string]any `json:"args,omitempty"`
 CommandId string         `json:"command_id,omitempty"`
-Output    string         `json:"output,omitempty"`
+Output    any            `json:"output,omitempty"`
+Data      map[string]any `json:"data,omitempty"` // Used in action logs
 ```
 
-## Operations
+**Operations**
 
 | Syntax      	   | Description 									  | Args                    |
 | ------           | ----------- 									  | ----                    |
 | launch_next      | Ready to launch next cluster, if available       | id -> cluster ID        |
 | rollingrestart   | Rolling restart all clusters, one by one         |                         |
-| statuses         | Gets the statuses of all clusters. Currently a *internal* API |            |
+| start            | Starts a cluster with a specific ID              | id -> cluster ID        |
+| stop             | Starts a cluster with a specific ID              | id -> cluster ID        |
+| statuses         | Gets the statuses of all clusters.               |                         |
 | shutdown         | Shuts down the entire bot and lets systemctl start it up again if needed | |
 | restartproc      | Shuts down bot with error code so systemctl restarts it automatically |    |
-| diag             | The cluster must respond with a ``proc.DiagResponse`` payload. This is used as a diagnostic by the clusterer and may be used in the future for more important actions. | |
-
-## TODO
-
-Finish documenting redis and bug fixes
+| diag             | The cluster must respond with a ``proc.DiagResponse`` payload. This is used as a diagnostic by the clusterer and may be used in the future for more important actions.      |    |
 
 ## Diagnostics
 
