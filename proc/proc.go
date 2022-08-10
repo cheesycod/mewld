@@ -23,6 +23,7 @@ var (
 	DiagChannel        = make(chan DiagResponse)
 	PingCheckStop      = make(chan int) // Channel to stop the ping checker
 	ErrTimeout         = errors.New("timeoutError")
+	ErrLockedInstance  = errors.New("lockedInstanceError")
 )
 
 // Represents a "cluster" of instances.
@@ -49,13 +50,12 @@ type InstanceList struct {
 }
 
 type Instance struct {
-	StartedAt time.Time
-	SessionID string    // Internally used to identify the instance
-	ClusterID int       // ClusterID from clustermap
-	Shards    []uint64  // Shards that this instance is responsible for currently, should be equal to clustermap
-	Command   *exec.Cmd `json:"-"` // Command that is running on the instance
-	Active    bool      // Whether or not this instance is active
-	//LockObserver     bool          // Whether or not observer should be 'locked'/not process a kill
+	StartedAt        time.Time
+	SessionID        string        // Internally used to identify the instance
+	ClusterID        int           // ClusterID from clustermap
+	Shards           []uint64      // Shards that this instance is responsible for currently, should be equal to clustermap
+	Command          *exec.Cmd     `json:"-"` // Command that is running on the instance
+	Active           bool          // Whether or not this instance is active
 	ClusterHealth    []ShardHealth // Cache of shard health from a ping
 	CurrentlyKilling bool          // Whether or not we are currently killing this instance
 
@@ -76,7 +76,8 @@ type DiagResponse struct {
 	Data  []ShardHealth
 }
 
-func (i *Instance) LockObserver() bool {
+// Returns true if the cluster is locked, otherwise false
+func (i *Instance) Locked() bool {
 	if i.LockClusterTime == nil || time.Since(*i.LockClusterTime) < time.Second*60 {
 		return false
 	}
@@ -84,24 +85,41 @@ func (i *Instance) LockObserver() bool {
 	return true
 }
 
-func (i *Instance) LockCluster() {
+func (i *Instance) Lock(l *InstanceList, subsystem string) error {
+	if i.Locked() {
+		log.Error("Instance is already locked")
+		go l.ActionLog(map[string]any{
+			"event":     "instance_locked_error",
+			"subsystem": subsystem,
+		})
+		return ErrLockedInstance
+	}
 	lt := time.Now()
 
 	i.LockClusterTime = &lt
+
+	return nil
 }
 
-func (i *Instance) UnlockCluster() {
+func (i *Instance) Unlock() {
 	i.LockClusterTime = nil
 }
 
-// Very simple status fetcher for "statuses" command
-func (i *Instance) Status() string {
-	if i.Active {
-		return "running"
-	} else if i.SessionID != "" {
-		return "initialized"
+// Waits for the instance lock to end (if any), then returns thus acquiring the lock
+func (i *Instance) AcquireLock() {
+	for {
+		if i.Locked() {
+			time.Sleep(time.Millisecond * 100)
+			continue
+		}
+		break
 	}
-	return "stopped"
+}
+
+// Acquires the lock and then locks it
+func (i *Instance) AcquireLockAndLock(l *InstanceList, subsystem string) {
+	i.AcquireLock()
+	i.Lock(l, subsystem)
 }
 
 // Internal payload for diagnostics
@@ -251,12 +269,9 @@ func (l *InstanceList) RollingRestart() {
 	for _, i := range l.Instances {
 		log.Info("Rolling restart on cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
 
-		if i.LockObserver() {
-			// Cluster currently busy, skip
-			continue
-		}
+		i.AcquireLock()
 
-		i.LockCluster()
+		i.Lock(l, "RollingRestart")
 
 		code := l.Stop(i)
 
@@ -268,7 +283,7 @@ func (l *InstanceList) RollingRestart() {
 		// Now start cluster again
 		l.Start(i)
 
-		i.UnlockCluster()
+		i.Unlock()
 
 		for {
 			id := <-RollRestartChannel
@@ -294,7 +309,7 @@ func (l *InstanceList) StartNext() {
 			log.Info("Going to start *next* cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") after delay of 5 seconds due to concurrency")
 			time.Sleep(time.Second * 5)
 			l.Start(i)
-			i.UnlockCluster() // Unlock cluster after starting
+			i.Unlock() // Unlock cluster after starting
 			return
 		}
 	}
@@ -312,7 +327,7 @@ func (l *InstanceList) KillAll() {
 		} else {
 			log.Info("Killing cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ")")
 
-			i.LockCluster()
+			i.Lock(l, "KillAll")
 			i.Command.Process.Kill()
 			i.Active = false
 			i.SessionID = ""
@@ -326,7 +341,7 @@ func (l *InstanceList) KillAll() {
 		}
 		i.Command.Wait()
 
-		i.UnlockCluster()
+		i.Unlock()
 	}
 }
 
@@ -364,7 +379,7 @@ func (l *InstanceList) Stop(i *Instance) StopCode {
 
 	log.Info("Stopping cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
 
-	i.LockCluster()
+	i.Lock(l, "Stop")
 
 	i.Command.Process.Kill()
 
@@ -372,7 +387,7 @@ func (l *InstanceList) Stop(i *Instance) StopCode {
 
 	i.SessionID = ""
 
-	i.UnlockCluster()
+	i.Unlock()
 
 	log.Info("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") stopped")
 
@@ -384,7 +399,7 @@ func (l *InstanceList) Start(i *Instance) {
 	l.startMutex.Lock()
 	defer l.startMutex.Unlock()
 
-	i.LockCluster()
+	i.Lock(l, "Start")
 
 	i.StartedAt = time.Now()
 	l.LastClusterStartedAt = time.Now()
@@ -446,7 +461,7 @@ func (l *InstanceList) Start(i *Instance) {
 	// Spawn process
 	err = cmd.Start()
 
-	i.UnlockCluster()
+	i.Unlock()
 
 	if err != nil {
 		log.Error("Cluster "+cluster.Name+"("+strconv.Itoa(cluster.ID)+") failed to start", err)
@@ -497,7 +512,7 @@ func (l *InstanceList) PingCheck(i *Instance, sid string) {
 					"id":    i.ClusterID,
 				})
 
-				if i.LockObserver() {
+				if i.Locked() {
 					// Oops, we have a locked observer
 					log.Error("Cluster locked, cannot restart ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
 					continue
@@ -505,7 +520,7 @@ func (l *InstanceList) PingCheck(i *Instance, sid string) {
 
 				log.Error("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") is not responding. Restarting.")
 
-				i.LockCluster()
+				i.Lock(l, "PingCheck")
 
 				currentlyKilling = true
 				time.Sleep(time.Second * 1)
@@ -514,7 +529,7 @@ func (l *InstanceList) PingCheck(i *Instance, sid string) {
 				l.Start(i)
 				currentlyKilling = false
 
-				i.UnlockCluster()
+				i.Unlock()
 
 				return
 			}
@@ -544,7 +559,7 @@ func (l *InstanceList) Observe(i *Instance, sid string) {
 			return // Stop observer if instance is stopped
 		}
 
-		if i.LockObserver() {
+		if i.Locked() {
 			log.Error("Cluster locked, cannot restart ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
 			return
 		}
@@ -555,7 +570,7 @@ func (l *InstanceList) Observe(i *Instance, sid string) {
 		}
 
 		i.Active = false
-		i.LockCluster()
+		i.Lock(l, "Observe")
 
 		log.Error("Cluster "+l.Cluster(i).Name+" ("+strconv.Itoa(l.Cluster(i).ID)+") died unexpectedly: ", err)
 
@@ -571,6 +586,6 @@ func (l *InstanceList) Observe(i *Instance, sid string) {
 		time.Sleep(time.Second * 3)
 		l.Start(i)
 
-		i.UnlockCluster()
+		i.Unlock()
 	}
 }
