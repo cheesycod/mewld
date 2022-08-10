@@ -29,9 +29,9 @@
 
         <div id="cluster-list">
             {{range $cluster := .InstanceList.Map}}
-                <div class="cluster">
+                <div class="cluster" >
                     <p class="cluster-para">{{$cluster.ID}}. {{$cluster.Name}}</p>
-                    <div class="cluster-pane" id="c-{{$cluster.ID}}">
+                    <div class="cluster-pane clickable" id="c-{{$cluster.ID}}">
                         Loading cluster information...
                     </div>
                 </div>
@@ -360,9 +360,16 @@
 <strong>Shards:</strong> ${i.Shards.join(', ')}<br/>
 <strong>Started At:</strong> ${i.StartedAt}<br/>
 <strong>Active:</strong> ${i.Active}<br/>
-<strong>Locked:</strong> ${i.Locked}<br/>
+
+<div id="c-${i.ClusterID}-health" style="margin-bottom: 10px">
+    <span style="font-weight: bold">Click here to manage this cluster and fetch health information about it</span>
+</div>    
                 `);
                 $(`#c-${i.ClusterID}`).addClass(i.Active ? "c-active" : "c-inactive");
+
+                $(`#c-${i.ClusterID}`).on("click", function(e) {
+                    alert("Clicked cluster!!!")
+                })
                 console.log(i)
             })
         }
@@ -402,6 +409,9 @@
                             }
                             html += `<p class="clickable" onclick="showAld(${i})" id="alp-${i}">Cluster ${el.cluster} launched successfully</p>`;
                             ald += `<strong>Cluster:</strong> ${el.cluster}<br/><strong>From shard:</strong> ${el.from}<br/><strong>To shard:</strong> ${el.to}`;
+                            break;
+                        case "rolling_restart":
+                            html += `<p class="clickable" onclick="showAld(${i})" id="alp-${i}">Rolling restart begun (instance wide)</p>`;
                             break;
                         default:
                             html += `<p class="clickable" onclick="showAld(${i})" id="alp-${i}">Unknown event: ${JSON.stringify(el)}</p>`;
