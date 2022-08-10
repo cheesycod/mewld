@@ -284,9 +284,13 @@
                 return;
             }
 
-            let res = await fetch("/restart", {
+            let res = await fetch("/redis/pub", {
                 credentials: "include",
-                method: "POST"
+                method: "POST",
+                body: JSON.stringify({
+                    "scope": "launcher",
+                    "action": "restartproc"
+                })
             });
             if (res.ok) {
                 alert("Restarting mewld");
@@ -356,6 +360,7 @@
 <strong>Shards:</strong> ${i.Shards.join(', ')}<br/>
 <strong>Started At:</strong> ${i.StartedAt}<br/>
 <strong>Active:</strong> ${i.Active}<br/>
+<strong>Locked:</strong> ${i.Locked}<br/>
                 `);
                 $(`#c-${i.ClusterID}`).addClass(i.Active ? "c-active" : "c-inactive");
                 console.log(i)

@@ -273,10 +273,18 @@ func StartWebserver(webData WebData) {
 		},
 	))
 
-	r.POST("/restart", loginRoute(
+	r.POST("/redis/pub", loginRoute(
 		webData,
 		func(c *gin.Context, sess *loginDat) {
-			webData.InstanceList.SendMessage("0", "", "launcher", "restartproc")
+			payload, err := io.ReadAll(c.Request.Body)
+
+			if err != nil {
+				log.Error(err)
+				c.String(500, "Error reading body")
+				return
+			}
+
+			webData.InstanceList.Redis.Publish(webData.InstanceList.Ctx, webData.InstanceList.Config.RedisChannel, string(payload))
 		},
 	))
 
@@ -351,7 +359,10 @@ func StartWebserver(webData WebData) {
 				instance.ClusterHealth = ch
 			}
 
-			c.JSON(200, instance.ClusterHealth)
+			c.JSON(200, map[string]any{
+				"locked": instance.Locked(),
+				"health": instance.ClusterHealth,
+			})
 		},
 	))
 

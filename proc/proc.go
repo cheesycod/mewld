@@ -28,29 +28,29 @@ var (
 
 // Represents a "cluster" of instances.
 type ClusterMap struct {
-	ID     int
-	Name   string
-	Shards []uint64
+	ID     int      // The clusters ID
+	Name   string   // The friendly name of the cluster
+	Shards []uint64 // The shard numbers/IDs of the cluster
 }
 
 // The final store of the ClusterMap list as well as a instance store
 type InstanceList struct {
 	LastClusterStartedAt time.Time
-	Map                  []ClusterMap
-	Instances            []*Instance
-	ShardCount           uint64
-	Config               config.CoreConfig
-	Dir                  string
-	Redis                *redis.Client   `json:"-"` // Redis for publishing new messages, *not* subscribing
-	Ctx                  context.Context `json:"-"` // Context for redis
-	startMutex           *sync.Mutex     `json:"-"` // Internal mutex to prevent multiple instances from starting at the same time
-	actLogMutex          *sync.Mutex     `json:"-"` // Internal mutex to prevent multiple edits of action logs at the same time
-	RollRestarting       bool            // whether or not we are roll restarting (rolling restart)
-	FullyUp              bool            // whether or not we are fully up
+	Map                  []ClusterMap      // The list of clusters (ClusterMap) which defines how mewld will start clusters
+	Instances            []*Instance       // The list of instances (Instance) which are running
+	ShardCount           uint64            // The number of shards in ``mewld``
+	Config               config.CoreConfig // The configuration for ``mewld``
+	Dir                  string            // The base directory instances will use when loading clusters
+	Redis                *redis.Client     `json:"-"` // Redis for publishing new messages, *not* subscribing
+	Ctx                  context.Context   `json:"-"` // Context for redis
+	startMutex           *sync.Mutex       `json:"-"` // Internal mutex to prevent multiple instances from starting at the same time
+	actLogMutex          *sync.Mutex       `json:"-"` // Internal mutex to prevent multiple edits of action logs at the same time
+	RollRestarting       bool              // whether or not we are roll restarting (rolling restart)
+	FullyUp              bool              // whether or not we are fully up
 }
 
 type Instance struct {
-	StartedAt        time.Time
+	StartedAt        time.Time     // The time the instance was last started
 	SessionID        string        // Internally used to identify the instance
 	ClusterID        int           // ClusterID from clustermap
 	Shards           []uint64      // Shards that this instance is responsible for currently, should be equal to clustermap
@@ -58,22 +58,20 @@ type Instance struct {
 	Active           bool          // Whether or not this instance is active
 	ClusterHealth    []ShardHealth // Cache of shard health from a ping
 	CurrentlyKilling bool          // Whether or not we are currently killing this instance
-
-	LockClusterTime *time.Time // Time at which we last locked the cluster
-
-	LaunchedFully bool // Whether or not we have launched the instance fully (till launch_next)
+	LockClusterTime  *time.Time    // Time at which we last locked the cluster
+	LaunchedFully    bool          // Whether or not we have launched the instance fully (till launch_next)
 }
 
 type ShardHealth struct {
-	ShardID uint64  `json:"shard_id"`
-	Up      bool    `json:"up"`
-	Latency float64 `json:"latency"` // optional, send if possible
-	Guilds  uint64  `json:"guilds"`
+	ShardID uint64  `json:"shard_id"` // The shard ID
+	Up      bool    `json:"up"`       // Whether or not the shard is up
+	Latency float64 `json:"latency"`  // Latency of the shard (optional, send if possible)
+	Guilds  uint64  `json:"guilds"`   // The number of guilds in the shard
 }
 
 type DiagResponse struct {
-	Nonce string
-	Data  []ShardHealth
+	Nonce string        // Random nonce used to validate that a nonce comes from a specific diag request
+	Data  []ShardHealth // The shard health data
 }
 
 // Returns true if the cluster is locked, otherwise false
@@ -85,8 +83,9 @@ func (i *Instance) Locked() bool {
 	return true
 }
 
-func (i *Instance) Lock(l *InstanceList, subsystem string) error {
-	if i.Locked() {
+// Attempts to lock the cluster from observing actions (such as shutdown/startup/rolling restart etc.)
+func (i *Instance) Lock(l *InstanceList, subsystem string, critical bool) error {
+	if i.Locked() && !critical {
 		log.Error("Instance is already locked")
 		go l.ActionLog(map[string]any{
 			"event":     "instance_locked_error",
@@ -119,16 +118,17 @@ func (i *Instance) AcquireLock() {
 // Acquires the lock and then locks it
 func (i *Instance) AcquireLockAndLock(l *InstanceList, subsystem string) {
 	i.AcquireLock()
-	i.Lock(l, subsystem)
+	i.Lock(l, subsystem, false)
 }
 
 // Internal payload for diagnostics
 type diagPayload struct {
-	ClusterID int    `json:"id"`
-	Nonce     string `json:"nonce"`
-	Diag      bool   `json:"diag"`
+	ClusterID int    `json:"id"`    // The cluster ID
+	Nonce     string `json:"nonce"` // Random nonce sent that is used to validate that a nonce comes from a specific diag request
+	Diag      bool   `json:"diag"`  // Whether or not this is a diag request, is always true in this struct
 }
 
+// Scans all shards of a instance using a diag request to get the shard health
 func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 	var nonce = coreutils.RandomString(10)
 
@@ -168,6 +168,7 @@ func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 	}
 }
 
+// Creates a new action log for a cluster
 func (l *InstanceList) ActionLog(payload map[string]any) {
 	l.actLogMutex.Lock()
 	defer l.actLogMutex.Unlock()
@@ -203,9 +204,9 @@ func (l *InstanceList) ActionLog(payload map[string]any) {
 	if err != nil {
 		log.Error("Error posting action log: ", err)
 	}
-
 }
 
+// Initializes the instance list and sets needed fields, must be called
 func (l *InstanceList) Init() {
 	l.startMutex = &sync.Mutex{}
 	l.actLogMutex = &sync.Mutex{}
@@ -233,7 +234,7 @@ func (l *InstanceList) Acknowledge(cmdId string) error {
 	return l.SendMessage(cmdId, "ok", "bot", "")
 }
 
-// Acknowledge a published message
+// Sends a message to redis
 func (l *InstanceList) SendMessage(cmdId string, payload any, scope string, action string) error {
 	msg := map[string]any{
 		"command_id": cmdId,
@@ -253,7 +254,7 @@ func (l *InstanceList) SendMessage(cmdId string, payload any, scope string, acti
 	return err
 }
 
-// Should be called as a seperate goroutine
+// Begins a rolling restart, should be called as a seperate goroutine
 func (l *InstanceList) RollingRestart() {
 	if !l.FullyUp {
 		log.Error("Not fully up, not rolling restart")
@@ -271,7 +272,7 @@ func (l *InstanceList) RollingRestart() {
 
 		i.AcquireLock()
 
-		i.Lock(l, "RollingRestart")
+		i.Lock(l, "RollingRestart", false)
 
 		code := l.Stop(i)
 
@@ -301,8 +302,11 @@ func (l *InstanceList) RollingRestart() {
 	l.RollRestarting = false
 }
 
+// Starts the next cluster in the instance list if possible
 func (l *InstanceList) StartNext() {
-	l.FullyUp = false // We are starting a new instance, so we are not fully up yet
+	// We are starting a new instance, so we are not fully up yet
+	l.FullyUp = false
+
 	// Get next instance to start
 	for _, i := range l.Instances {
 		if i.Command == nil || i.Command.Process == nil {
@@ -319,6 +323,7 @@ func (l *InstanceList) StartNext() {
 	l.FullyUp = true // If we get here, we are fully up
 }
 
+// Kills all clusters in the instance list
 func (l *InstanceList) KillAll() {
 	// Kill all instances
 	for _, i := range l.Instances {
@@ -327,7 +332,7 @@ func (l *InstanceList) KillAll() {
 		} else {
 			log.Info("Killing cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ")")
 
-			i.Lock(l, "KillAll")
+			i.AcquireLockAndLock(l, "KillAll")
 			i.Command.Process.Kill()
 			i.Active = false
 			i.SessionID = ""
@@ -345,6 +350,7 @@ func (l *InstanceList) KillAll() {
 	}
 }
 
+// Returns the ClusterMap for a specific instance
 func (l *InstanceList) Cluster(i *Instance) *ClusterMap {
 	for _, c := range l.Map {
 		if c.ID == i.ClusterID {
@@ -354,6 +360,7 @@ func (l *InstanceList) Cluster(i *Instance) *ClusterMap {
 	return nil
 }
 
+// Returns a Instance given its cluster ID
 func (l *InstanceList) InstanceByID(id int) *Instance {
 	for _, c := range l.Instances {
 		if c.ClusterID == id {
@@ -370,6 +377,7 @@ const (
 	StopCodeRestartFailed StopCode = -1
 )
 
+// Attempts to stop a instance returning a status code defining whether the cluster could be stopped or not
 func (l *InstanceList) Stop(i *Instance) StopCode {
 	if i.Command == nil || i.Command.Process == nil {
 		log.Error("Cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ") is not running. Cannot stop process which isn't running?")
@@ -379,7 +387,7 @@ func (l *InstanceList) Stop(i *Instance) StopCode {
 
 	log.Info("Stopping cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
 
-	i.Lock(l, "Stop")
+	i.Lock(l, "Stop", false)
 
 	i.Command.Process.Kill()
 
@@ -394,12 +402,15 @@ func (l *InstanceList) Stop(i *Instance) StopCode {
 	return StopCodeNormal
 }
 
+// Starts a instance in the instance list, this locks the cluster if not already locked before unlocking after startup
 func (l *InstanceList) Start(i *Instance) {
 	// Mutex to prevent multiple instances from starting at the same time
 	l.startMutex.Lock()
 	defer l.startMutex.Unlock()
 
-	i.Lock(l, "Start")
+	if !i.Locked() {
+		i.Lock(l, "Start", false)
+	}
 
 	i.StartedAt = time.Now()
 	l.LastClusterStartedAt = time.Now()
@@ -474,6 +485,7 @@ func (l *InstanceList) Start(i *Instance) {
 	go l.PingCheck(i, i.SessionID)
 }
 
+// Pings a cluster every “ping_interval“ to check for responsiveness, restarts dead clusters if not responding to “diag“ ping checks
 func (l *InstanceList) PingCheck(i *Instance, sid string) {
 	ticker := time.NewTicker(time.Second * time.Duration(l.Config.PingInterval))
 
@@ -520,7 +532,7 @@ func (l *InstanceList) PingCheck(i *Instance, sid string) {
 
 				log.Error("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") is not responding. Restarting.")
 
-				i.Lock(l, "PingCheck")
+				i.Lock(l, "PingCheck", false)
 
 				currentlyKilling = true
 				time.Sleep(time.Second * 1)
@@ -553,6 +565,7 @@ func (l *InstanceList) PingCheck(i *Instance, sid string) {
 	}
 }
 
+// Observes a cluster and restarts it if necessary (unexpected death of the cluster)
 func (l *InstanceList) Observe(i *Instance, sid string) {
 	if err := i.Command.Wait(); err != nil {
 		if i.SessionID == "" || sid != i.SessionID {
@@ -570,7 +583,7 @@ func (l *InstanceList) Observe(i *Instance, sid string) {
 		}
 
 		i.Active = false
-		i.Lock(l, "Observe")
+		i.Lock(l, "Observe", true)
 
 		log.Error("Cluster "+l.Cluster(i).Name+" ("+strconv.Itoa(l.Cluster(i).ID)+") died unexpectedly: ", err)
 

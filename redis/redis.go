@@ -244,7 +244,7 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 
 					il.Acknowledge(cmd.CommandId)
 
-					i.Lock(il, "Redis.restart")
+					i.Lock(il, "Redis.restart", false)
 
 					err := il.Stop(i)
 
