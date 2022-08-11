@@ -159,24 +159,6 @@ type loginDat struct {
 	AccessToken string `json:"access_token"`
 }
 
-func templParse(filename string) string {
-	// Open file
-	file, err := os.Open(filename)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Read file
-	fileBytes, err := io.ReadAll(file)
-
-	if err != nil {
-		log.Error(err)
-	}
-
-	return string(fileBytes)
-}
-
 func StartWebserver(webData WebData) {
 	// Create webserver using gin
 	r := gin.New()
