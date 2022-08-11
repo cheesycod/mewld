@@ -8,11 +8,20 @@
       }
     }
 
-    let res = await fetch(`${session.instanceUrl}/instance-list`, {
-        headers: {
-            "X-Session": session.id
-        }
-    });
+    let res = null
+
+    try {
+      res = await fetch(`${session.instanceUrl}/instance-list`, {
+          headers: {
+              "X-Session": session.id
+          }
+      });
+    } catch (err) {
+      return {
+        redirect: '/',
+        status: 302,
+      }
+    }
 
     if (!res.ok) {
       return {
@@ -63,6 +72,7 @@ import { session } from "$app/stores";
 
       if (!res.ok) {
         alert(await res.text());
+        return
       }
 
       let cluster = await res.json();
@@ -95,6 +105,78 @@ import { session } from "$app/stores";
           alert("Failed to restart mewld");
       }
     }
+
+    async function rollRestart() {
+      let p = prompt("Are you sure you want to roll restart (Yes/No)");
+
+      if(p != "Yes") {
+          return;
+      }
+
+      let res = await fetch(`${$session.instanceUrl}/redis/pub`, {
+          headers: {
+              "X-Session": $session.id
+          },
+          method: "POST",
+          body: JSON.stringify({
+              "scope": "launcher",
+              "action": "rollingrestart",
+          })
+      });
+      if (res.ok) {
+          alert("Roll restarting");
+      } else {
+          alert("Failed to roll restart");
+      }
+    }
+
+    async function restartCluster(id) {
+      let p = prompt("Are you sure you want to restart mewdl (Yes/No)");
+
+      if(p != "Yes") {
+          return;
+      }
+
+      let res = await fetch(`${$session.instanceUrl}/redis/pub`, {
+          headers: {
+              "X-Session": $session.id
+          },
+          method: "POST",
+          body: JSON.stringify({
+              "scope": "launcher",
+              "action": "restart",
+              "args": {
+                id: id
+              }
+          })
+      });
+      if (res.ok) {
+          alert("Restarting mewld");
+      } else {
+          alert("Failed to restart mewld");
+      }
+    }
+
+    setInterval(async () => {
+      let aRes = null;
+      try {
+        aRes = await fetch(`${$session.instanceUrl}/action-logs`, {
+            headers: {
+                "X-Session": $session.id
+            }
+        });
+      } catch (err) {
+        console.log(err)
+        return
+      }
+  
+      if (!aRes.ok) {
+        console.error(await aRes.text());
+        return
+      }
+
+      actionLogs = await aRes.json();
+    }, 5000)
 </script>
 
 <h2>Action Logs</h2>
@@ -125,6 +207,7 @@ import { session } from "$app/stores";
                 <strong>Latency: {Math.round(shard.latency * 1000)} ms</strong><br/>
                 <strong>Guilds: {shard.guilds}</strong><br/>
               {/each}
+              <button on:click={() => restartCluster(cluster.ID)}>Restart Cluster</button>
             {/if}
         </div>    
       </div>
@@ -147,4 +230,6 @@ import { session } from "$app/stores";
     </code>
 </details>
 
-<button on:click={() => restartMewld()}>Restart Mewld</button>
+<button on:click={() => rollRestart()}>Rolling Restart All Clusters</button>
+
+<button on:click={() => restartMewld()}>Restart Mewld (DANGEROUS)</button>

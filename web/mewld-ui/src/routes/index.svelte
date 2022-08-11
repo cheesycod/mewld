@@ -31,17 +31,24 @@
     }
 </script>
 
-{#if $session.id}
-    <button on:click={() => logout()}>Logout</button>
-
-    <h1>Homepage</h1>
-    <button on:click={() => goto("/clusters")}>View Clusters</button>
+{#if $session.maint}
+    <div class="alert alert-danger">
+        <button on:click={() => logout()}>Logout</button>
+        The mewld instance you tried to connect to is currently under maintenance, please try again later
+    </div>
 {:else}
-    <h1>Instance Connect</h1>
-    <input bind:value={instanceUrl} type="text" placeholder="Input mewld instance URL" />
-    <button on:click={() => login()}>Connect</button>
-    <p>{statusMsg}</p>
-    <footer>
-        <p>If connection does not work, try enabling <a href="https://experienceleague.adobe.com/docs/target/using/experiences/vec/troubleshoot-composer/mixed-content.html?lang=en">mixed content</a></p>
-    </footer>
+    {#if $session.id}
+        <button on:click={() => logout()}>Logout</button>
+
+        <h1>Homepage</h1>
+        <button on:click={() => goto("/clusters")}>View Clusters</button>
+    {:else}
+        <h1>Instance Connect</h1>
+        <input bind:value={instanceUrl} type="text" placeholder="Input mewld instance URL" />
+        <button on:click={() => login()}>Connect</button>
+        <p>{statusMsg}</p>
+        <footer>
+            <p>If connection does not work, try enabling <a href="https://experienceleague.adobe.com/docs/target/using/experiences/vec/troubleshoot-composer/mixed-content.html?lang=en">mixed content</a></p>
+        </footer>
+    {/if}
 {/if}

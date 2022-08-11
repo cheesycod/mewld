@@ -28,19 +28,28 @@ export const getSession: GetSession = async (event) => {
     id = ""
   }
 
-  if(id) {
-    let pingCheck = await fetch(`${instanceUrl}/ping`, {
-      headers: {
-        'X-Session': id
-      }
-    })
+  let maint = false
 
-    let pingText = await pingCheck.text()
+  if(id) {
+    let pingText = ""
+
+    try {
+      let pingCheck = await fetch(`${instanceUrl}/ping`, {
+        headers: {
+          'X-Session': id
+        }
+      })
+
+      pingText = await pingCheck.text()
+    } catch (err) {
+      maint = true
+      console.error(err)
+    }
 
     if(pingText != "pong") {
       id = ""
     }
   }
 
-  return {id: id, instanceUrl: instanceUrl};
+  return {id: id, instanceUrl: instanceUrl, maint: maint};
 };

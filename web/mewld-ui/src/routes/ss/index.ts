@@ -6,7 +6,7 @@ export const GET: RequestHandler = async (event) => {
 
   return {
     "headers": {
-      "set-cookie": [`session=${sessionId}; path=/; HttpOnly; SameSite=Strict; Secure`, `instanceUrl=${instanceUrl}; path=/; HttpOnly; SameSite=Strict; Secure`],
+      "set-cookie": [`session=${sessionId}; path=/; HttpOnly; SameSite=Lax;`, `instanceUrl=${instanceUrl}; path=/; HttpOnly; SameSite=Lax;`],
       "content-type": "text/html"
     },
     "body": `

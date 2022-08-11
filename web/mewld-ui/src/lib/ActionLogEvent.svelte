@@ -19,6 +19,8 @@
         {/if}
     {:else if logentry.event == "rolling_restart"}
         <p class="clickable" on:click={() => {showAld(i)}} id="alp-{i}">Rolling restart begun (instance wide)</p>
+    {:else if logentry.event == "ping_failure"}
+        <p class="clickable" on:click={() => {showAld(i)}} id="alp-{i}">Cluster <span class="cluster-id">{logentry.id}</span> failed to respond and is/was restarted</p>
     {:else}
         <p class="clickable" on:click={() => {showAld(i)}} id="alp-{i}">Unknown event: {JSON.stringify(logentry)}</p>
     {/if}
@@ -28,6 +30,8 @@
 
         {#if logentry.event == "shards_launched"}
             <strong>Cluster:</strong> {logentry.cluster}<br/><strong>From shard:</strong> {logentry.from}<br/><strong>To shard:</strong> {logentry.to}
+        {:else if logentry.event == "ping_failure"}
+        <strong>Cluster:</strong> {logentry.id}
         {/if}
     </div>
 {/each}

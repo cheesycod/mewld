@@ -164,7 +164,7 @@ func StartWebserver(webData WebData) {
 	r := gin.New()
 
 	r.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
-		if param.Path == "/ping" {
+		if param.Path == "/ping" || param.Path == "/action-logs" {
 			return ""
 		}
 

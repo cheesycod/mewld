@@ -9,6 +9,7 @@ declare namespace App {
 	interface Session {
 		id: string;
 		instanceUrl: string;
+		maint: boolean;
 	}
 	// interface Stuff {}
 }
