@@ -1,10 +1,8 @@
 package web
 
 import (
-	"embed"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io"
 	"mewld/coreutils"
 	"mewld/proc"
@@ -20,40 +18,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
-
-// Template files
-var (
-	//go:embed webui/*.html
-	templateFiles embed.FS
-	templates     *template.Template
-
-	templateFileList = []string{
-		"head",
-	}
-)
-
-func init() {
-	// Load template from string literal
-
-	// Index template
-	fileContent, err := templateFiles.ReadFile("webui/index.html")
-
-	if err != nil {
-		panic(err)
-	}
-
-	templates = template.Must(template.New("index").Parse(string(fileContent)))
-
-	for _, t := range templateFileList {
-		fileContent, err := templateFiles.ReadFile("webui/" + t + ".html")
-
-		if err != nil {
-			panic(err)
-		}
-
-		template.Must(templates.New(t).Parse(string(fileContent)))
-	}
-}
 
 type SessionStartLimit struct {
 	Total          uint64 `json:"total"`
@@ -244,12 +208,9 @@ func StartWebserver(webData WebData) {
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 	})
 
-	r.GET("/", loginRoute(
-		webData,
-		func(c *gin.Context, sess *loginDat) {
-			templates.Lookup("index").Execute(c.Writer, webData)
-		},
-	))
+	r.GET("/", func(c *gin.Context) {
+		c.String(200, "Mewld instance up, use mewld-ui to access it using your browser")
+	})
 
 	r.GET("/ping", loginRoute(
 		webData,
@@ -288,31 +249,6 @@ func StartWebserver(webData WebData) {
 			}
 
 			webData.InstanceList.Redis.Publish(webData.InstanceList.Ctx, webData.InstanceList.Config.RedisChannel, string(payload))
-		},
-	))
-
-	r.POST("/addtemplate", loginRoute(
-		webData,
-		func(c *gin.Context, sess *loginDat) {
-			templName := c.Query("name")
-
-			templateFileList = append(templateFileList, templName)
-		},
-	))
-
-	r.POST("/removetemplate", loginRoute(
-		webData,
-		func(c *gin.Context, sess *loginDat) {
-			templName := c.Query("name")
-
-			templateFileList = []string{}
-
-			for _, t := range templateFileList {
-				if t != templName {
-					templateFileList = append(templateFileList, t)
-					break
-				}
-			}
 		},
 	))
 
@@ -533,29 +469,6 @@ func StartWebserver(webData WebData) {
 
 			c.Header("Content-Type", "application/json")
 			c.String(200, string(body))
-		},
-	))
-
-	r.GET("/reload", loginRoute(
-		webData,
-		func(c *gin.Context, sess *loginDat) {
-			// Reload all templates from their files
-			dirname, err := os.UserHomeDir()
-
-			if err != nil {
-				log.Error(err)
-				c.String(http.StatusInternalServerError, "message")
-			}
-
-			var newTemplate *template.Template
-
-			templates = newTemplate // Reset template
-
-			templates = template.Must(template.New("index").Parse(templParse(dirname + "/mewld/web/webui/index.html")))
-
-			for _, t := range templateFileList {
-				templates = template.Must(templates.New(t).Parse(templParse(dirname + "/mewld/web/webui/" + t + ".html")))
-			}
 		},
 	))
 

@@ -81,3 +81,9 @@ button:hover {
 .active {
     display: initial !important;
 }
+
+code {
+    font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+    font-size: 12px;
+    word-wrap: break-word;
+}

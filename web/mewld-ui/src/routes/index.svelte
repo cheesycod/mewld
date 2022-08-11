@@ -36,7 +36,6 @@
 
     <h1>Homepage</h1>
     <button on:click={() => goto("/clusters")}>View Clusters</button>
-    <button on:click={() => goto("/action-logs")}>View Action Logs</button>
 {:else}
     <h1>Instance Connect</h1>
     <input bind:value={instanceUrl} type="text" placeholder="Input mewld instance URL" />
