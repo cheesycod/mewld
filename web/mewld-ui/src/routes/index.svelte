@@ -41,4 +41,7 @@
     <input bind:value={instanceUrl} type="text" placeholder="Input mewld instance URL" />
     <button on:click={() => login()}>Connect</button>
     <p>{statusMsg}</p>
+    <footer>
+        <p>If connection does not work, try enabling <a href="https://experienceleague.adobe.com/docs/target/using/experiences/vec/troubleshoot-composer/mixed-content.html?lang=en">mixed content</a></p>
+    </footer>
 {/if}
