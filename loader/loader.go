@@ -16,7 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func Load(config *config.CoreConfig) (*proc.InstanceList, *redis.RedisHandler, error) {
+func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.InstanceList, *redis.RedisHandler, error) {
 	var err error
 	if len(config.Env) > 0 {
 		err = godotenv.Load(config.Env...)
@@ -56,8 +56,15 @@ func Load(config *config.CoreConfig) (*proc.InstanceList, *redis.RedisHandler, e
 		return nil, nil, fmt.Errorf("error getting directory: %w", err)
 	}
 
+	if loaderData == nil {
+		loaderData = &proc.LoaderData{
+			Start: proc.DefaultStart,
+		}
+	}
+
 	il := &proc.InstanceList{
 		Config:     config,
+		LoaderData: loaderData,
 		Dir:        dir,
 		Map:        clusterMap,
 		Instances:  []*proc.Instance{},

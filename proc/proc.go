@@ -27,6 +27,56 @@ var (
 	ErrLockedInstance  = errors.New("lockedInstanceError")
 )
 
+// Internal loader data, to make mewld embeddable and more extendible
+type LoaderData struct {
+	Start func(l *InstanceList, i *Instance, cm *ClusterMap) error // Start function
+}
+
+func DefaultStart(l *InstanceList, i *Instance, cm *ClusterMap) error {
+	// Log mode, depends on bot to handle it
+	loggingCode := "0"
+
+	// Get interpreter/caller
+	var cmd *exec.Cmd
+	if l.Config.Interp != "" {
+		cmd = exec.Command(
+			l.Config.Interp,
+			l.Dir+"/"+l.Config.Module,
+			coreutils.ToPyListUInt64(i.Shards),
+			coreutils.UInt64ToString(l.ShardCount),
+			strconv.Itoa(i.ClusterID),
+			cm.Name,
+			loggingCode,
+			l.Dir,
+		)
+	} else {
+		cmd = exec.Command(
+			l.Config.Module, // If no interpreter, we use the full module as the executable path
+			coreutils.ToPyListUInt64(i.Shards),
+			coreutils.UInt64ToString(l.ShardCount),
+			strconv.Itoa(i.ClusterID),
+			cm.Name,
+			loggingCode,
+			l.Dir,
+		)
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Dir = l.Dir
+
+	env := os.Environ()
+
+	env = append(env, "MEWLD_CHANNEL="+l.Config.RedisChannel)
+
+	cmd.Env = env
+
+	i.Command = cmd
+
+	// Spawn process
+	return cmd.Start()
+}
+
 // Represents a "cluster" of instances.
 type ClusterMap struct {
 	ID     int      // The clusters ID
@@ -41,6 +91,7 @@ type InstanceList struct {
 	Instances            []*Instance        `json:"Instances"`      // The list of instances (Instance) which are running
 	ShardCount           uint64             `json:"ShardCount"`     // The number of shards in ``mewld``
 	Config               *config.CoreConfig `json:"-"`              // The configuration for ``mewld`` ANTIRAID-SPECIFIC: Don't marshal this into JSON
+	LoaderData           *LoaderData        `json:"-"`              // Internal loader data, to make mewld embeddable
 	Dir                  string             `json:"Dir"`            // The base directory instances will use when loading clusters
 	Redis                *redis.Client      `json:"-"`              // Redis for publishing new messages, *not* subscribing
 	Ctx                  context.Context    `json:"-"`              // Context for redis
@@ -432,48 +483,7 @@ func (l *InstanceList) Start(i *Instance) {
 		log.Fatal("Cluster not found")
 	}
 
-	// Log mode, depends on bot to handle it
-	loggingCode := "0"
-
-	// Get interpreter/caller
-	var cmd *exec.Cmd
-	if l.Config.Interp != "" {
-		cmd = exec.Command(
-			l.Config.Interp,
-			l.Dir+"/"+l.Config.Module,
-			coreutils.ToPyListUInt64(i.Shards),
-			coreutils.UInt64ToString(l.ShardCount),
-			strconv.Itoa(i.ClusterID),
-			cluster.Name,
-			loggingCode,
-			l.Dir,
-		)
-	} else {
-		cmd = exec.Command(
-			l.Config.Module, // If no interpreter, we use the full module as the executable path
-			coreutils.ToPyListUInt64(i.Shards),
-			coreutils.UInt64ToString(l.ShardCount),
-			strconv.Itoa(i.ClusterID),
-			cluster.Name,
-			loggingCode,
-			l.Dir,
-		)
-	}
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Dir = l.Dir
-
-	env := os.Environ()
-
-	env = append(env, "MEWLD_CHANNEL="+l.Config.RedisChannel)
-
-	cmd.Env = env
-
-	i.Command = cmd
-
-	// Spawn process
-	err := cmd.Start()
+	err := l.LoaderData.Start(l, i, cluster)
 
 	i.Unlock()
 
