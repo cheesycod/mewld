@@ -65,7 +65,7 @@ func main() {
 		log.Fatal("Check config file again: ", err)
 	}
 
-	il, err := loader.Load(&config)
+	il, _, err := loader.Load(&config)
 
 	if err != nil {
 		log.Fatal("Error loading instances: ", err)

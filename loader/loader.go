@@ -16,16 +16,20 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func Load(config *config.CoreConfig) (*proc.InstanceList, error) {
+func Load(config *config.CoreConfig) (*proc.InstanceList, *redis.RedisHandler, error) {
 	var err error
 	if len(config.Env) > 0 {
 		err = godotenv.Load(config.Env...)
 
 		if err != nil {
-			return nil, fmt.Errorf("error loading env files: %w", err)
+			return nil, nil, fmt.Errorf("error loading env files: %w", err)
 		}
 
 		log.Println("Env files loaded")
+	}
+
+	if os.Getenv("MTOKEN") != "" {
+		config.Token = os.Getenv("MTOKEN")
 	}
 
 	shardCount := utils.GetShardCount()
@@ -49,7 +53,7 @@ func Load(config *config.CoreConfig) (*proc.InstanceList, error) {
 	dir, err := utils.ConfigGetDirectory(config)
 
 	if err != nil {
-		return nil, fmt.Errorf("error getting directory: %w", err)
+		return nil, nil, fmt.Errorf("error getting directory: %w", err)
 	}
 
 	il := &proc.InstanceList{
@@ -75,13 +79,15 @@ func Load(config *config.CoreConfig) (*proc.InstanceList, error) {
 	redish := redis.CreateHandler(config)
 	go redish.Start(il)
 
-	go web.StartWebserver(web.WebData{
-		RedisHandler: &redish,
-		InstanceList: il,
-	})
+	if !config.UseCustomWebUI {
+		go web.StartWebserver(web.WebData{
+			RedisHandler: &redish,
+			InstanceList: il,
+		})
+	}
 
 	// We now start the first cluster, this cluster will then alert us over redis when to start cluster 2 (todo: timeout?)
 	go il.Start(il.Instances[0])
 
-	return il, nil
+	return il, &redish, nil
 }

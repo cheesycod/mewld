@@ -7,9 +7,11 @@ type Oauth struct {
 }
 
 type CoreConfig struct {
+	Token               string   `yaml:"token"` // Either set token or the MTOKEN env var
 	Dir                 string   `yaml:"dir"`
 	OverrideDir         string   `yaml:"override_dir"`
 	UseCurrentDirectory bool     `yaml:"use_current_directory"`
+	UseCustomWebUI      bool     `yaml:"use_custom_webui"`
 	Env                 []string `yaml:"env"`
 	Names               []string `yaml:"names"`
 	Redis               string   `yaml:"redis"`
