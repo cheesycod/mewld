@@ -1,8 +1,8 @@
 # mewld
 
-Mewbot clusterer. Will be open source to help other large bot developers.
+A generic discord bot clusterer. Will be open source to help other large bot developers.
 
-Mewbot clusterer is rather generic and any bot should be able to adapt to it without any changes to ``mewld``
+Mewld clusterer is rather generic and any bot should be able to adapt to it without any changes to ``mewld``
 
 ## What is a cluster
 
