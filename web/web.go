@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -261,7 +260,7 @@ func StartWebserver(webData WebData) {
 				return
 			}
 
-			res.Header.Set("Authorization", "Bot "+os.Getenv("MTOKEN"))
+			res.Header.Set("Authorization", "Bot "+webData.InstanceList.Config.Token)
 			res.Header.Set("User-Agent", "DiscordBot (WebUI/1.0)")
 
 			client := &http.Client{Timeout: time.Second * 10}
@@ -315,7 +314,7 @@ func StartWebserver(webData WebData) {
 				return
 			}
 
-			res.Header.Set("Authorization", "Bot "+os.Getenv("MTOKEN"))
+			res.Header.Set("Authorization", "Bot "+webData.InstanceList.Config.Token)
 			res.Header.Set("User-Agent", "DiscordBot (WebUI/1.0)")
 
 			client := &http.Client{Timeout: time.Second * 10}

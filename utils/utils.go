@@ -100,12 +100,12 @@ type ShardCount struct {
 	SessionStartLimit SessionStartLimit `json:"session_start_limit"`
 }
 
-func GetShardCount() ShardCount {
+func GetShardCount(c *config.CoreConfig) ShardCount {
 	url := "https://discord.com/api/gateway/bot"
 
 	req, err := http.NewRequest("GET", url, nil)
 
-	req.Header.Add("Authorization", "Bot "+os.Getenv("MTOKEN"))
+	req.Header.Add("Authorization", "Bot "+c.Token)
 	req.Header.Add("User-Agent", "MewBot/1.0")
 	req.Header.Add("Content-Type", "application/json")
 

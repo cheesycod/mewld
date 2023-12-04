@@ -32,7 +32,7 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 		config.Token = os.Getenv("MTOKEN")
 	}
 
-	shardCount := utils.GetShardCount()
+	shardCount := utils.GetShardCount(config)
 
 	log.Println("Recommended shard count:", shardCount.Shards)
 
