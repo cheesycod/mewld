@@ -15,7 +15,7 @@ import (
 	"github.com/cheesycod/mewld/config"
 	"github.com/cheesycod/mewld/coreutils"
 
-	"github.com/go-redis/redis/v9"
+	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 )
 
