@@ -1,4 +1,4 @@
-dir: dir: mewbot
+dir: mewbot
 override_dir:
 env:
   - "env/bot.env"
