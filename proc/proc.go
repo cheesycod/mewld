@@ -463,6 +463,7 @@ func (l *InstanceList) Start(i *Instance) {
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.Dir = l.Dir
 
 	env := os.Environ()
 
