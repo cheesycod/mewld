@@ -1,4 +1,4 @@
-module mewld
+module github.com/cheesycod/mewld
 
 go 1.18
 

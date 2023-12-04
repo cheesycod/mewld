@@ -4,12 +4,13 @@ package redis
 import (
 	"context"
 	"encoding/json"
-	"mewld/config"
-	"mewld/proc"
 	"os"
 	"reflect"
 	"strconv"
 	"syscall"
+
+	"github.com/cheesycod/mewld/config"
+	"github.com/cheesycod/mewld/proc"
 
 	log "github.com/sirupsen/logrus"
 

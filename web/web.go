@@ -4,15 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mewld/coreutils"
-	"mewld/proc"
-	"mewld/redis"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cheesycod/mewld/coreutils"
+	"github.com/cheesycod/mewld/proc"
+	"github.com/cheesycod/mewld/redis"
 
 	log "github.com/sirupsen/logrus"
 

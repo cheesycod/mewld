@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mewld/config"
-	"mewld/coreutils"
-	"mewld/proc"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/cheesycod/mewld/config"
+	"github.com/cheesycod/mewld/coreutils"
+	"github.com/cheesycod/mewld/proc"
 
 	log "github.com/sirupsen/logrus"
 )

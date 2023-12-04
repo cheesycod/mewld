@@ -2,14 +2,15 @@ package loader
 
 import (
 	"fmt"
-	"mewld/config"
-	"mewld/coreutils"
-	"mewld/proc"
-	"mewld/redis"
-	"mewld/utils"
-	"mewld/web"
 	"os"
 	"strconv"
+
+	"github.com/cheesycod/mewld/config"
+	"github.com/cheesycod/mewld/coreutils"
+	"github.com/cheesycod/mewld/proc"
+	"github.com/cheesycod/mewld/redis"
+	"github.com/cheesycod/mewld/utils"
+	"github.com/cheesycod/mewld/web"
 
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"

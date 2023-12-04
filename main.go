@@ -2,11 +2,12 @@ package main
 
 import (
 	"io"
-	"mewld/config"
-	"mewld/loader"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/cheesycod/mewld/config"
+	"github.com/cheesycod/mewld/loader"
 
 	_ "embed"
 

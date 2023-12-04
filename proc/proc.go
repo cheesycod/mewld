@@ -5,14 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"mewld/config"
-	"mewld/coreutils"
 	"os"
 	"os/exec"
 	"strconv"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/cheesycod/mewld/config"
+	"github.com/cheesycod/mewld/coreutils"
 
 	"github.com/go-redis/redis/v9"
 	log "github.com/sirupsen/logrus"
