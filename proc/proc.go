@@ -36,17 +36,17 @@ type ClusterMap struct {
 // The final store of the ClusterMap list as well as a instance store
 type InstanceList struct {
 	LastClusterStartedAt time.Time
-	Map                  []ClusterMap      // The list of clusters (ClusterMap) which defines how mewld will start clusters
-	Instances            []*Instance       // The list of instances (Instance) which are running
-	ShardCount           uint64            // The number of shards in ``mewld``
-	Config               config.CoreConfig // The configuration for ``mewld``
-	Dir                  string            // The base directory instances will use when loading clusters
-	Redis                *redis.Client     `json:"-"` // Redis for publishing new messages, *not* subscribing
-	Ctx                  context.Context   `json:"-"` // Context for redis
-	startMutex           *sync.Mutex       `json:"-"` // Internal mutex to prevent multiple instances from starting at the same time
-	actLogMutex          *sync.Mutex       `json:"-"` // Internal mutex to prevent multiple edits of action logs at the same time
-	RollRestarting       bool              // whether or not we are roll restarting (rolling restart)
-	FullyUp              bool              // whether or not we are fully up
+	Map                  []ClusterMap       // The list of clusters (ClusterMap) which defines how mewld will start clusters
+	Instances            []*Instance        // The list of instances (Instance) which are running
+	ShardCount           uint64             // The number of shards in ``mewld``
+	Config               *config.CoreConfig // The configuration for ``mewld``
+	Dir                  string             // The base directory instances will use when loading clusters
+	Redis                *redis.Client      `json:"-"` // Redis for publishing new messages, *not* subscribing
+	Ctx                  context.Context    `json:"-"` // Context for redis
+	startMutex           *sync.Mutex        `json:"-"` // Internal mutex to prevent multiple instances from starting at the same time
+	actLogMutex          *sync.Mutex        `json:"-"` // Internal mutex to prevent multiple edits of action logs at the same time
+	RollRestarting       bool               // whether or not we are roll restarting (rolling restart)
+	FullyUp              bool               // whether or not we are fully up
 }
 
 type Instance struct {

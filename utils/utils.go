@@ -61,7 +61,7 @@ func GetClusterList(clusterNames []string, shards uint64, perCluster uint64) []p
 }
 
 // Given a config, return the directory to use
-func ConfigGetDirectory(config config.CoreConfig) (string, error) {
+func ConfigGetDirectory(config *config.CoreConfig) (string, error) {
 	var dir string
 	var err error
 	if config.OverrideDir != "" {

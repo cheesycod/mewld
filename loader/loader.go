@@ -15,7 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func Load(config config.CoreConfig) (*proc.InstanceList, error) {
+func Load(config *config.CoreConfig) (*proc.InstanceList, error) {
 	var err error
 	if len(config.Env) > 0 {
 		err = godotenv.Load(config.Env...)

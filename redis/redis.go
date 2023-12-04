@@ -22,7 +22,7 @@ type RedisHandler struct {
 	Redis *redis.Client
 }
 
-func CreateHandler(config config.CoreConfig) RedisHandler {
+func CreateHandler(config *config.CoreConfig) RedisHandler {
 	ctx := context.Background()
 
 	rdb := redis.NewClient(&redis.Options{
