@@ -2,9 +2,17 @@ package utils
 
 import (
 	"bufio"
+	"encoding/json"
+	"fmt"
+	"io"
+	"mewld/config"
 	"mewld/coreutils"
 	"mewld/proc"
+	"net/http"
 	"os"
+	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func ReadLines(path string) ([]string, error) {
@@ -50,4 +58,93 @@ func GetClusterList(clusterNames []string, shards uint64, perCluster uint64) []p
 	}
 
 	return clusterMap
+}
+
+// Given a config, return the directory to use
+func ConfigGetDirectory(config config.CoreConfig) (string, error) {
+	var dir string
+	var err error
+	if config.OverrideDir != "" {
+		dir = config.OverrideDir
+	} else {
+		var dirname string
+		if config.UseCurrentDirectory {
+			dirname, err = os.Getwd()
+
+			if err != nil {
+				return "", fmt.Errorf("could not find current directory: %w", err)
+			}
+		} else {
+			dirname, err = os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("could not find home directory: %w", err)
+			}
+		}
+
+		dir = dirname + "/" + config.Dir
+	}
+
+	return dir, nil
+}
+
+type SessionStartLimit struct {
+	Total          uint64 `json:"total"`
+	Remaining      uint64 `json:"remaining"`
+	ResetAfter     uint64 `json:"reset_after"`
+	MaxConcurrency uint64 `json:"max_concurrency"`
+}
+
+type ShardCount struct {
+	Shards            uint64            `json:"shards"`
+	SessionStartLimit SessionStartLimit `json:"session_start_limit"`
+}
+
+func GetShardCount() ShardCount {
+	url := "https://discord.com/api/gateway/bot"
+
+	req, err := http.NewRequest("GET", url, nil)
+
+	req.Header.Add("Authorization", "Bot "+os.Getenv("MTOKEN"))
+	req.Header.Add("User-Agent", "MewBot/1.0")
+	req.Header.Add("Content-Type", "application/json")
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client := http.Client{Timeout: 10 * time.Second}
+
+	res, err := client.Do(req)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer res.Body.Close()
+
+	log.Println("Shard count status:", res.Status)
+
+	if res.StatusCode != 200 {
+		log.Fatal("Shard count status code not 200. Invalid token?")
+	}
+
+	var shardCount ShardCount
+
+	bodyBytes, err := io.ReadAll(res.Body)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = json.Unmarshal(bodyBytes, &shardCount)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if shardCount.SessionStartLimit.Remaining < 10 {
+		log.Fatal("Shard count remaining is less than safe value of 10")
+	}
+
+	return shardCount
 }
