@@ -286,7 +286,7 @@ func (l *InstanceList) Reshard() error {
 		return errors.New("reshard not enabled")
 	}
 
-	if !l.RollRestarting {
+	if l.RollRestarting {
 		return fmt.Errorf("cannot reshard during a rolling restart")
 	}
 
