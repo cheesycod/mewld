@@ -290,6 +290,10 @@ func (l *InstanceList) Reshard() error {
 		return fmt.Errorf("cannot reshard during a rolling restart")
 	}
 
+	if !l.FullyUp {
+		return fmt.Errorf("cannot safely reshard while starting clusters")
+	}
+
 	// Lock all instances
 	for i := range l.Instances {
 		if l.Instances[i].Locked() {
