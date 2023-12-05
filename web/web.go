@@ -160,6 +160,7 @@ func StartWebserver(webData WebData) {
 
 				if err != nil {
 					c.String(400, "Could not marshal payload %d: %w", i, err)
+					return
 				}
 
 				payloadFinal = append(payloadFinal, pm)
