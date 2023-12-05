@@ -170,7 +170,8 @@ type ShardHealth struct {
 	ShardID uint64  `json:"shard_id"` // The shard ID
 	Up      bool    `json:"up"`       // Whether or not the shard is up
 	Latency float64 `json:"latency"`  // Latency of the shard (optional, send if possible)
-	Guilds  uint64  `json:"guilds"`   // The number of guilds in the shard
+	Guilds  uint64  `json:"guilds"`   // The number of guilds in the shard. Is optional
+	Users   uint64  `json:"users"`    // The number of users in the shard. Is optional
 }
 
 type DiagResponse struct {
