@@ -95,8 +95,7 @@ type InstanceList struct {
 	Dir                  string             `json:"Dir"`            // The base directory instances will use when loading clusters
 	Redis                *redis.Client      `json:"-"`              // Redis for publishing new messages, *not* subscribing
 	Ctx                  context.Context    `json:"-"`              // Context for redis
-	startMutex           *sync.Mutex        `json:"-"`              // Internal mutex to prevent multiple instances from starting at the same time
-	actLogMutex          *sync.Mutex        `json:"-"`              // Internal mutex to prevent multiple edits of action logs at the same time
+	StartMutex           *sync.Mutex        `json:"-"`              // Internal mutex to prevent multiple instances from starting at the same time
 	RollRestarting       bool               `json:"RollRestarting"` // whether or not we are roll restarting (rolling restart)
 	FullyUp              bool               `json:"FullyUp"`        // whether or not we are fully up
 }
@@ -205,11 +204,13 @@ func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 	}
 
 	// Wait for diagnostic message from channel with timeout
-	if l.Config.PingTimeout == 0 {
-		l.Config.PingTimeout = 120
+	if l.Config.PingTimeout == nil {
+		l.Config.PingTimeout = coreutils.Pointer(120)
 	}
 
-	ticker := time.NewTicker(time.Second * time.Duration(l.Config.PingTimeout))
+	pt := *l.Config.PingTimeout
+
+	ticker := time.NewTicker(time.Second * time.Duration(pt))
 
 	for {
 		select {
@@ -228,46 +229,24 @@ func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 
 // Creates a new action log for a cluster
 func (l *InstanceList) ActionLog(payload map[string]any) {
-	l.actLogMutex.Lock()
-	defer l.actLogMutex.Unlock()
-
 	payload["ts"] = time.Now().UnixMicro()
 
 	log.Info("Posting action log: ", payload)
 
-	oldPayload := l.Redis.Get(l.Ctx, l.Config.RedisChannel+"_action").Val()
-
-	var oldPayloadMap []map[string]any
-
-	if oldPayload != "" {
-		err := json.Unmarshal([]byte(oldPayload), &oldPayloadMap)
-
-		if err != nil {
-			log.Error("Error unmarshalling old action log: ", err)
-			oldPayloadMap = []map[string]any{}
-		}
-
-		oldPayloadMap = append(oldPayloadMap, payload)
-	}
-
-	bytes, err := json.Marshal(oldPayloadMap)
+	pBytes, err := json.Marshal(payload)
 
 	if err != nil {
-		log.Error("Error marshalling action log: ", err)
-		return
+		log.Error("Error marshalling action log", err)
 	}
 
-	err = l.Redis.Set(l.Ctx, l.Config.RedisChannel+"_action", bytes, 0).Err()
-
-	if err != nil {
-		log.Error("Error posting action log: ", err)
+	if l.Redis.RPush(l.Ctx, l.Config.RedisChannel+"/actlogs", pBytes).Err() != nil {
+		log.Error("Error adding action log", err)
 	}
 }
 
 // Initializes the instance list and sets needed fields, must be called
 func (l *InstanceList) Init() {
-	l.startMutex = &sync.Mutex{}
-	l.actLogMutex = &sync.Mutex{}
+	l.StartMutex = &sync.Mutex{}
 
 	ctx := context.Background()
 
@@ -368,8 +347,13 @@ func (l *InstanceList) StartNext() {
 	// Get next instance to start
 	for _, i := range l.Instances {
 		if i.Command == nil || i.Command.Process == nil {
-			log.Info("Going to start *next* cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") after delay of 5 seconds due to concurrency")
-			time.Sleep(time.Second * 5)
+			if l.Config.ClusterStartNextDelay == nil {
+				l.Config.ClusterStartNextDelay = coreutils.Pointer(5)
+			}
+
+			snd := *l.Config.ClusterStartNextDelay
+			log.Info("Going to start *next* cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") after delay of "+strconv.Itoa(snd)+" seconds due to concurrency")
+			time.Sleep(time.Second * time.Duration(snd))
 			l.Start(i)
 			i.Unlock() // Unlock cluster after starting
 			return
@@ -463,8 +447,8 @@ func (l *InstanceList) Stop(i *Instance) StopCode {
 // Starts a instance in the instance list, this locks the cluster if not already locked before unlocking after startup
 func (l *InstanceList) Start(i *Instance) {
 	// Mutex to prevent multiple instances from starting at the same time
-	l.startMutex.Lock()
-	defer l.startMutex.Unlock()
+	l.StartMutex.Lock()
+	defer l.StartMutex.Unlock()
 
 	if !i.Locked() {
 		i.Lock(l, "Start", false)

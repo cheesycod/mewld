@@ -8,6 +8,12 @@ Mewld clusterer is rather generic and any bot should be able to adapt to it with
 
 A cluster is a way to scale large discord bots by breaking them into seperate processes, each with a set of shards. ``mewld`` is an implementation of this system.
 
+## Terminology
+
+- Cluster - A single process with a set of shards in it
+- Cluster size - The amount of shards in a cluster
+- Embedding - Embedding ``mewld`` into a Go project for increased customizability
+
 ## How it works
 
 - Shard count is retrieved using ``Get Gateway Bot``. This is then used to create a ``ClusterMap`` assigning each cluster a set of shards based on ``per_cluster`` in config.yaml. These ``ClusterMap``'s are then used to make a ``InstanceList`` of ``Instance`` structs.
@@ -16,9 +22,11 @@ A cluster is a way to scale large discord bots by breaking them into seperate pr
 
 - ``mewld`` also handles other tasks such as cluster management via its webui which also comes with (*upcoming*) support for application command permission configs (for private commands that should only be visible to specific roles in a support or staff server)
 
+- ``mewld`` supports ``max_concurrency`` under the following limits. Firstly, the underlying bot must support launching several shards concurrently (as ``mewld`` does not actually start shards). Secondly, the number of shards that can actually be 
+
 ## Redis
 
-Mewld uses redis for communication with clusters.
+Mewld uses redis for communication with clusters and for action logs. Action logs are stored as a Redis list under ``${redis_channel_name}/actlogs``.
 
 **Data Format:**
 

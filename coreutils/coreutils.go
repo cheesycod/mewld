@@ -10,6 +10,11 @@ import (
 	"unsafe"
 )
 
+// Given a value, return a pointer to it
+func Pointer[T any](v T) *T {
+	return &v
+}
+
 // Creates a python compatible list
 func ToPyListUInt64(l []uint64) string {
 	var s string = "["

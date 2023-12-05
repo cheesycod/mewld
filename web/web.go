@@ -149,11 +149,23 @@ func StartWebserver(webData WebData) {
 	r.GET("/action-logs", loginRoute(
 		webData,
 		func(c *gin.Context, sess *loginDat) {
-			payload := webData.InstanceList.Redis.Get(webData.InstanceList.Ctx, webData.InstanceList.Config.RedisChannel+"_action").Val()
+			payload := webData.InstanceList.Redis.LRange(webData.InstanceList.Ctx, webData.InstanceList.Config.RedisChannel+"/actlogs", 0, -1).Val()
 
-			c.Header("Content-Type", "text/json")
+			var payloadFinal []map[string]any
 
-			c.String(200, payload)
+			for i, p := range payload {
+				var pm map[string]any
+
+				err := json.Unmarshal([]byte(p), &pm)
+
+				if err != nil {
+					c.String(400, "Could not marshal payload %d: %w", i, err)
+				}
+
+				payloadFinal = append(payloadFinal, pm)
+			}
+
+			c.JSON(200, payloadFinal)
 		},
 	))
 
