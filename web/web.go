@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cheesycod/mewld/coreutils"
 	"github.com/cheesycod/mewld/proc"
 	"github.com/cheesycod/mewld/redis"
+	"github.com/cheesycod/mewld/utils"
 
 	log "github.com/sirupsen/logrus"
 
@@ -540,7 +540,7 @@ func StartWebserver(webData WebData) {
 			return
 		}
 
-		sessionTok := coreutils.RandomString(64)
+		sessionTok := utils.RandomString(64)
 
 		jsonStruct := loginDat{
 			ID:          discordUser.ID,

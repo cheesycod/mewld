@@ -2,12 +2,10 @@ package loader
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
 	"github.com/cheesycod/mewld/config"
-	"github.com/cheesycod/mewld/coreutils"
 	"github.com/cheesycod/mewld/proc"
 	"github.com/cheesycod/mewld/redis"
 	"github.com/cheesycod/mewld/utils"
@@ -29,12 +27,8 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 		log.Println("Env files loaded")
 	}
 
-	if os.Getenv("MTOKEN") != "" {
-		config.Token = os.Getenv("MTOKEN")
-	}
-
 	if config.MinimumSafeSessionsRemaining == nil {
-		config.MinimumSafeSessionsRemaining = coreutils.Pointer[uint64](5)
+		config.MinimumSafeSessionsRemaining = utils.Pointer[uint64](5)
 	}
 
 	mssr := *config.MinimumSafeSessionsRemaining
@@ -90,9 +84,9 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 	go redish.Start(il)
 
 	for _, cMap := range clusterMap {
-		log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+"): ", coreutils.ToPyListUInt64(cMap.Shards))
+		log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+"): ", utils.ToPyListUInt64(cMap.Shards))
 		il.Instances = append(il.Instances, &proc.Instance{
-			SessionID: coreutils.RandomString(16),
+			SessionID: utils.RandomString(16),
 			ClusterID: cMap.ID,
 			Shards:    cMap.Shards,
 		})

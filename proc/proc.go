@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/cheesycod/mewld/config"
-	"github.com/cheesycod/mewld/coreutils"
+	"github.com/cheesycod/mewld/utils"
 
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
@@ -95,7 +95,7 @@ func GetClusterList(clusterNames []string, shards uint64, perCluster uint64) []C
 		if uint64(len(shardArr)) >= perCluster {
 			if cid >= len(clusterNames)-3 {
 				// Create a new cluster name using random string
-				clusterNames = append(clusterNames, coreutils.RandomString(10))
+				clusterNames = append(clusterNames, utils.RandomString(10))
 			}
 			cid++
 			clusterMap = append(clusterMap, ClusterMap{ID: cid, Name: clusterNames[cid], Shards: shardArr})
@@ -234,7 +234,7 @@ type diagPayload struct {
 
 // Scans all shards of a instance using a diag request to get the shard health
 func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
-	var nonce = coreutils.RandomString(10)
+	var nonce = utils.RandomString(10)
 
 	var diagPayload = diagPayload{
 		ClusterID: i.ClusterID,
@@ -256,7 +256,7 @@ func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 
 	// Wait for diagnostic message from channel with timeout
 	if l.Config.PingTimeout == nil {
-		l.Config.PingTimeout = coreutils.Pointer(120)
+		l.Config.PingTimeout = utils.Pointer(120)
 	}
 
 	pt := *l.Config.PingTimeout
@@ -282,7 +282,7 @@ func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 //
 // EXPERIMENTAL: Set 'reshard' in experimental_features to enable this
 func (l *InstanceList) Reshard() error {
-	if !coreutils.SliceContains(l.Config.ExperimentalFeatures, "reshard") {
+	if !utils.SliceContains(l.Config.ExperimentalFeatures, "reshard") {
 		return errors.New("reshard not enabled")
 	}
 
@@ -312,7 +312,7 @@ func (l *InstanceList) Reshard() error {
 	}
 
 	if l.Config.MinimumSafeSessionsRemaining == nil {
-		l.Config.MinimumSafeSessionsRemaining = coreutils.Pointer[uint64](5)
+		l.Config.MinimumSafeSessionsRemaining = utils.Pointer[uint64](5)
 	}
 
 	mssr := *l.Config.MinimumSafeSessionsRemaining
@@ -341,7 +341,7 @@ func (l *InstanceList) Reshard() error {
 	for i, cMap := range clusterMap {
 		if i < len(l.Instances) {
 			// We already have this cluster already, merely grow it, then restart the cluster
-			log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+") EXPANDED: ", coreutils.ToPyListUInt64(cMap.Shards))
+			log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+") EXPANDED: ", utils.ToPyListUInt64(cMap.Shards))
 			l.Instances[i].ClusterID = cMap.ID
 			l.Instances[i].Shards = cMap.Shards
 
@@ -354,9 +354,9 @@ func (l *InstanceList) Reshard() error {
 			}
 		} else {
 			// We don't already have this cluster yet, add it
-			log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+") CREATED: ", coreutils.ToPyListUInt64(cMap.Shards))
+			log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+") CREATED: ", utils.ToPyListUInt64(cMap.Shards))
 			l.Instances = append(l.Instances, &Instance{
-				SessionID: coreutils.RandomString(16),
+				SessionID: utils.RandomString(16),
 				ClusterID: cMap.ID,
 				Shards:    cMap.Shards,
 			})
@@ -515,7 +515,7 @@ func (l *InstanceList) StartNext() {
 	for _, i := range l.Instances {
 		if i.Command == nil || i.Command.Process == nil {
 			if l.Config.ClusterStartNextDelay == nil {
-				l.Config.ClusterStartNextDelay = coreutils.Pointer(5)
+				l.Config.ClusterStartNextDelay = utils.Pointer(5)
 			}
 
 			snd := *l.Config.ClusterStartNextDelay
@@ -528,7 +528,7 @@ func (l *InstanceList) StartNext() {
 	}
 
 	log.Info("No more instances to start. All done!!!")
-	l.SendMessage(coreutils.RandomString(16), "", "bot", "all_clusters_launched")
+	l.SendMessage(utils.RandomString(16), "", "bot", "all_clusters_launched")
 	l.FullyUp = true // If we get here, we are fully up
 }
 
@@ -623,7 +623,7 @@ func (l *InstanceList) Start(i *Instance) {
 
 	i.StartedAt = time.Now()
 	l.LastClusterStartedAt = time.Now()
-	i.SessionID = coreutils.RandomString(32)
+	i.SessionID = utils.RandomString(32)
 	i.LastChecked = time.Now()
 
 	log.Info("Starting cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") in directory ", l.Dir)

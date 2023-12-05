@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strconv"
 
-	"github.com/cheesycod/mewld/coreutils"
+	"github.com/cheesycod/mewld/utils"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -20,8 +20,8 @@ func DefaultStart(l *InstanceList, i *Instance, cm *ClusterMap) error {
 		cmd = exec.Command(
 			l.Config.Interp,
 			l.Dir+"/"+l.Config.Module,
-			coreutils.ToPyListUInt64(i.Shards),
-			coreutils.UInt64ToString(l.ShardCount),
+			utils.ToPyListUInt64(i.Shards),
+			utils.UInt64ToString(l.ShardCount),
 			strconv.Itoa(i.ClusterID),
 			cm.Name,
 			loggingCode,
@@ -30,8 +30,8 @@ func DefaultStart(l *InstanceList, i *Instance, cm *ClusterMap) error {
 	} else {
 		cmd = exec.Command(
 			l.Config.Module, // If no interpreter, we use the full module as the executable path
-			coreutils.ToPyListUInt64(i.Shards),
-			coreutils.UInt64ToString(l.ShardCount),
+			utils.ToPyListUInt64(i.Shards),
+			utils.UInt64ToString(l.ShardCount),
 			strconv.Itoa(i.ClusterID),
 			cm.Name,
 			loggingCode,
@@ -56,6 +56,6 @@ func DefaultStart(l *InstanceList, i *Instance, cm *ClusterMap) error {
 }
 
 func DefaultOnReshard(l *InstanceList, i *Instance, cm *ClusterMap, oldShards []uint64, newShards []uint64) error {
-	log.Info(fmt.Sprintf("Resharding cluster %s (%d) from %s to %s", cm.Name, cm.ID, coreutils.ToPyListUInt64(oldShards), coreutils.ToPyListUInt64(newShards)))
+	log.Info(fmt.Sprintf("Resharding cluster %s (%d) from %s to %s", cm.Name, cm.ID, utils.ToPyListUInt64(oldShards), utils.ToPyListUInt64(newShards)))
 	return nil
 }

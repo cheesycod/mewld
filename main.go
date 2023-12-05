@@ -8,6 +8,7 @@ import (
 
 	"github.com/cheesycod/mewld/config"
 	"github.com/cheesycod/mewld/loader"
+	"github.com/cheesycod/mewld/utils"
 
 	_ "embed"
 
@@ -15,23 +16,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func SetLogLevel() {
-	lvl, ok := os.LookupEnv("LOG_LEVEL")
-	// LOG_LEVEL not set, let's default to info
-	if !ok {
-		lvl = "info"
-	}
-	// parse string, this is built-in feature of logrus
-	ll, err := log.ParseLevel(lvl)
-	if err != nil {
-		ll = log.InfoLevel
-	}
-	// set global log level
-	log.SetLevel(ll)
-}
-
 func main() {
-	SetLogLevel()
+	utils.SetLogLevel()
 
 	// Load the config file
 	configFile := "config.yaml"
@@ -62,7 +48,11 @@ func main() {
 	err = yaml.Unmarshal(configBytes, &config)
 
 	if err != nil {
-		log.Fatal("Check config file again: ", err)
+		log.Fatal("Config.yaml load failed. Check config file again: ", err)
+	}
+
+	if os.Getenv("MTOKEN") != "" {
+		config.Token = os.Getenv("MTOKEN")
 	}
 
 	il, _, err := loader.Load(&config, nil)
