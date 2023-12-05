@@ -9,40 +9,15 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/cheesycod/mewld/config"
 	"github.com/cheesycod/mewld/proc"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/redis/go-redis/v9"
 )
 
 // A Handler for redis
 type RedisHandler struct {
-	Ctx   context.Context
-	Redis *redis.Client
-}
-
-func CreateHandler(config *config.CoreConfig) RedisHandler {
-	ctx := context.Background()
-
-	rdb := redis.NewClient(&redis.Options{
-		Addr:        config.Redis,
-		Password:    "", // no password set
-		DB:          0,  // use default DB
-		ReadTimeout: -1,
-	})
-
-	status := rdb.Ping(ctx)
-
-	if status.Err() != nil {
-		log.Fatal("Redis error: ", status.Err())
-	}
-
-	return RedisHandler{
-		Ctx:   ctx,
-		Redis: rdb,
-	}
+	Ctx          context.Context    `json:"-"` // A different context is used here to allow for some customizability
+	InstanceList *proc.InstanceList `json:"-"`
 }
 
 type LauncherCmd struct {
@@ -69,7 +44,7 @@ type numproc struct {
 
 func (r *RedisHandler) Start(il *proc.InstanceList) {
 	// Start pubsub
-	pubsub := r.Redis.Subscribe(r.Ctx, il.Config.RedisChannel)
+	pubsub := r.InstanceList.Redis.Subscribe(r.Ctx, il.Config.RedisChannel)
 
 	defer pubsub.Close()
 
@@ -259,6 +234,28 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 
 					break
 				}
+			}
+		case "reshard":
+			il.Acknowledge(cmd.CommandId)
+
+			il.ActionLog(map[string]any{
+				"event":     "reshard_begin",
+				"subsystem": "redis",
+			})
+
+			err := il.Reshard()
+
+			if err != nil {
+				il.ActionLog(map[string]any{
+					"event":     "reshard_failed",
+					"error":     err.Error(),
+					"subsystem": "redis",
+				})
+			} else {
+				il.ActionLog(map[string]any{
+					"event":     "reshard_success",
+					"subsystem": "redis",
+				})
 			}
 		case "num_processes":
 			payload := numproc{

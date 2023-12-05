@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
+	"fmt"
+	"io"
+	"net/http"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -29,52 +32,85 @@ var (
 
 // Internal loader data, to make mewld embeddable and more extendible
 type LoaderData struct {
-	Start func(l *InstanceList, i *Instance, cm *ClusterMap) error // Start function
+	Start     func(l *InstanceList, i *Instance, cm *ClusterMap) error                                         // Start function
+	OnReshard func(l *InstanceList, i *Instance, cm *ClusterMap, oldShards []uint64, newShards []uint64) error // OnReshard function is called when the bot is resharded by mewld
 }
 
-func DefaultStart(l *InstanceList, i *Instance, cm *ClusterMap) error {
-	// Log mode, depends on bot to handle it
-	loggingCode := "0"
+// Gets gateway information from discord
+func GetGatewayBot(c *config.CoreConfig) (*GatewayBot, error) {
+	url := "https://discord.com/api/gateway/bot"
 
-	// Get interpreter/caller
-	var cmd *exec.Cmd
-	if l.Config.Interp != "" {
-		cmd = exec.Command(
-			l.Config.Interp,
-			l.Dir+"/"+l.Config.Module,
-			coreutils.ToPyListUInt64(i.Shards),
-			coreutils.UInt64ToString(l.ShardCount),
-			strconv.Itoa(i.ClusterID),
-			cm.Name,
-			loggingCode,
-			l.Dir,
-		)
-	} else {
-		cmd = exec.Command(
-			l.Config.Module, // If no interpreter, we use the full module as the executable path
-			coreutils.ToPyListUInt64(i.Shards),
-			coreutils.UInt64ToString(l.ShardCount),
-			strconv.Itoa(i.ClusterID),
-			cm.Name,
-			loggingCode,
-			l.Dir,
-		)
+	req, err := http.NewRequest("GET", url, nil)
+
+	req.Header.Add("Authorization", "Bot "+c.Token)
+	req.Header.Add("User-Agent", "MewBot/1.0")
+	req.Header.Add("Content-Type", "application/json")
+
+	if err != nil {
+		return nil, err
 	}
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Dir = l.Dir
+	client := http.Client{Timeout: 10 * time.Second}
 
-	env := os.Environ()
+	res, err := client.Do(req)
 
-	env = append(env, "MEWLD_CHANNEL="+l.Config.RedisChannel)
+	if err != nil {
+		return nil, err
+	}
 
-	cmd.Env = env
+	defer res.Body.Close()
 
-	i.Command = cmd
+	log.Println("Shard count status:", res.Status)
 
-	// Spawn process
-	return cmd.Start()
+	if res.StatusCode != 200 {
+		log.Fatal("Shard count status code not 200. Invalid token?")
+	}
+
+	var gb GatewayBot
+
+	bodyBytes, err := io.ReadAll(res.Body)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = json.Unmarshal(bodyBytes, &gb)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &gb, nil
+}
+
+// Given a shard count, return the shards for each cluster (128 would be [[0, 1, ..., 9], [10, 11, ..., 19]])
+// However, if the shard count is not a multiple of the number of clusters, the last cluster will have fewer shards etc.
+// So, 1 would mean [[0]]
+func GetClusterList(clusterNames []string, shards uint64, perCluster uint64) []ClusterMap {
+	var clusterMap []ClusterMap
+
+	var shardArr []uint64
+	var cid int = -1 // We start at -1 because we increment it before we use it
+	for i := uint64(0); i < shards; i++ {
+		if uint64(len(shardArr)) >= perCluster {
+			if cid >= len(clusterNames)-3 {
+				// Create a new cluster name using random string
+				clusterNames = append(clusterNames, coreutils.RandomString(10))
+			}
+			cid++
+			clusterMap = append(clusterMap, ClusterMap{ID: cid, Name: clusterNames[cid], Shards: shardArr})
+			shardArr = []uint64{}
+		}
+
+		shardArr = append(shardArr, i)
+	}
+
+	if len(shardArr) > 0 {
+		cid++
+		clusterMap = append(clusterMap, ClusterMap{ID: cid, Name: clusterNames[cid], Shards: shardArr})
+	}
+
+	return clusterMap
 }
 
 // Represents a "cluster" of instances.
@@ -84,16 +120,31 @@ type ClusterMap struct {
 	Shards []uint64 // The shard numbers/IDs of the cluster
 }
 
+type SessionStartLimit struct {
+	Total          uint64 `json:"total"`           // Total number of session starts the current user is allowed
+	Remaining      uint64 `json:"remaining"`       // Remaining number of session starts the current user is allowed
+	ResetAfter     uint64 `json:"reset_after"`     // Number of milliseconds after which the limit resets
+	MaxConcurrency uint64 `json:"max_concurrency"` // Number of identify requests allowed per 5 seconds
+}
+
+// Represents a response from the 'Get Gateway Bot' API
+type GatewayBot struct {
+	Url               string            `json:"url"`
+	Shards            uint64            `json:"shards"`
+	SessionStartLimit SessionStartLimit `json:"session_start_limit"`
+}
+
 // The final store of the ClusterMap list as well as a instance store
 type InstanceList struct {
 	LastClusterStartedAt time.Time          `json:"LastClusterStartedAt"`
 	Map                  []ClusterMap       `json:"Map"`            // The list of clusters (ClusterMap) which defines how mewld will start clusters
 	Instances            []*Instance        `json:"Instances"`      // The list of instances (Instance) which are running
 	ShardCount           uint64             `json:"ShardCount"`     // The number of shards in ``mewld``
+	GatewayBot           *GatewayBot        `json:"GetGatewayBot"`  // The response from Get Gateway Bot
 	Config               *config.CoreConfig `json:"-"`              // The configuration for ``mewld`` ANTIRAID-SPECIFIC: Don't marshal this into JSON
 	LoaderData           *LoaderData        `json:"-"`              // Internal loader data, to make mewld embeddable
 	Dir                  string             `json:"Dir"`            // The base directory instances will use when loading clusters
-	Redis                *redis.Client      `json:"-"`              // Redis for publishing new messages, *not* subscribing
+	Redis                *redis.Client      `json:"-"`              // Core redis instance
 	Ctx                  context.Context    `json:"-"`              // Context for redis
 	StartMutex           *sync.Mutex        `json:"-"`              // Internal mutex to prevent multiple instances from starting at the same time
 	RollRestarting       bool               `json:"RollRestarting"` // whether or not we are roll restarting (rolling restart)
@@ -227,6 +278,110 @@ func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 	}
 }
 
+// Reshards an instance list
+//
+// EXPERIMENTAL: Set 'reshard' in experimental_features to enable this
+func (l *InstanceList) Reshard() error {
+	if !coreutils.SliceContains(l.Config.ExperimentalFeatures, "reshard") {
+		return errors.New("reshard not enabled")
+	}
+
+	if !l.RollRestarting {
+		return fmt.Errorf("cannot reshard during a rolling restart")
+	}
+
+	// Lock all instances
+	for i := range l.Instances {
+		if l.Instances[i].Locked() {
+			return fmt.Errorf("cluster %d is locked", i)
+		}
+
+		l.Instances[i].AcquireLockAndLock(l, "Reshard")
+		defer l.Instances[i].Unlock()
+	}
+
+	l.FullyUp = false
+
+	log.Println("Cluster names:", l.Config.Names)
+
+	// Get new shard count
+	gb, err := GetGatewayBot(l.Config)
+
+	if err != nil {
+		return fmt.Errorf("get gateway bot failed: %w", err)
+	}
+
+	if l.Config.MinimumSafeSessionsRemaining == nil {
+		l.Config.MinimumSafeSessionsRemaining = coreutils.Pointer[uint64](5)
+	}
+
+	mssr := *l.Config.MinimumSafeSessionsRemaining
+
+	if gb.SessionStartLimit.Remaining < mssr {
+		return fmt.Errorf("sessions remaining is less than config.minimum_safe_sessions_remaining")
+	}
+
+	log.Println("Recommended shard count:", gb.Shards)
+
+	if l.Config.FixedShardCount > 0 {
+		gb.Shards = l.Config.FixedShardCount
+	}
+
+	// Next set the cluster map correctly and roll restart clusters
+	var perCluster uint64 = l.Config.PerCluster
+
+	clusterMap := GetClusterList(l.Config.Names, gb.Shards, perCluster)
+
+	if len(clusterMap) < len(l.Instances) {
+		return fmt.Errorf("cannot safely reshard to a smaller cluster size")
+	}
+
+	errorList := []error{}
+
+	for i, cMap := range clusterMap {
+		if i < len(l.Instances) {
+			// We already have this cluster already, merely grow it, then restart the cluster
+			log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+") EXPANDED: ", coreutils.ToPyListUInt64(cMap.Shards))
+			l.Instances[i].ClusterID = cMap.ID
+			l.Instances[i].Shards = cMap.Shards
+
+			err := l.Stop(l.Instances[i])
+
+			if err == StopCodeNormal {
+				l.Start(l.Instances[i])
+			} else {
+				errorList = append(errorList, fmt.Errorf("cluster %d stop failure with exit code %d", i, err))
+			}
+		} else {
+			// We don't already have this cluster yet, add it
+			log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+") CREATED: ", coreutils.ToPyListUInt64(cMap.Shards))
+			l.Instances = append(l.Instances, &Instance{
+				SessionID: coreutils.RandomString(16),
+				ClusterID: cMap.ID,
+				Shards:    cMap.Shards,
+			})
+
+			l.Start(l.Instances[i])
+		}
+	}
+
+	if len(errorList) > 0 {
+		var err string
+
+		for _, el := range errorList {
+			if el != nil {
+				err += el.Error()
+			}
+		}
+
+		if err != "" {
+			return errors.New(err)
+		}
+	}
+
+	return nil
+}
+
 // Creates a new action log for a cluster
 func (l *InstanceList) ActionLog(payload map[string]any) {
 	payload["ts"] = time.Now().UnixMicro()
@@ -245,16 +400,28 @@ func (l *InstanceList) ActionLog(payload map[string]any) {
 }
 
 // Initializes the instance list and sets needed fields, must be called
+//
+// This function may update the config URL to include sane defaults
 func (l *InstanceList) Init() {
 	l.StartMutex = &sync.Mutex{}
+	l.GatewayBot = &GatewayBot{} // Ensure this is not nil
 
 	ctx := context.Background()
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     l.Config.Redis,
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+	if !strings.HasPrefix(l.Config.Redis, "redis://") {
+		// Assume config URL with some sane defaults
+		l.Config.Redis = "redis://" + l.Config.Redis + "/0"
+	}
+
+	opts, err := redis.ParseURL(l.Config.Redis)
+
+	if err != nil {
+		log.Fatal("Redis url parse error: ", err)
+	}
+
+	opts.ReadTimeout = -1
+
+	rdb := redis.NewClient(opts)
 
 	status := rdb.Ping(ctx)
 

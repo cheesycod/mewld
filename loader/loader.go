@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/cheesycod/mewld/config"
 	"github.com/cheesycod/mewld/coreutils"
@@ -32,23 +33,29 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 		config.Token = os.Getenv("MTOKEN")
 	}
 
-	shardCount := utils.GetShardCount(config)
-
-	log.Println("Recommended shard count:", shardCount.Shards)
-
-	if os.Getenv("SHARD_COUNT") != "" {
-		shardCount.Shards = coreutils.ParseUint64(os.Getenv("SHARD_COUNT"))
+	if config.MinimumSafeSessionsRemaining == nil {
+		config.MinimumSafeSessionsRemaining = coreutils.Pointer[uint64](5)
 	}
+
+	mssr := *config.MinimumSafeSessionsRemaining
+
+	gb, err := proc.GetGatewayBot(config)
+
+	if err != nil {
+		log.Fatal("Failed to get gateway bot", err)
+	}
+
+	if config.FixedShardCount > 0 {
+		gb.Shards = config.FixedShardCount
+	}
+
+	log.Println("Using shard count:", gb.Shards)
 
 	var perCluster uint64 = config.PerCluster
 
-	if os.Getenv("PER_CLUSTER") != "" {
-		perCluster = coreutils.ParseUint64(os.Getenv("PER_CLUSTER"))
-	}
-
 	log.Println("Cluster names:", config.Names)
 
-	clusterMap := utils.GetClusterList(config.Names, shardCount.Shards, perCluster)
+	clusterMap := proc.GetClusterList(config.Names, gb.Shards, perCluster)
 
 	dir, err := utils.ConfigGetDirectory(config)
 
@@ -68,10 +75,19 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 		Dir:        dir,
 		Map:        clusterMap,
 		Instances:  []*proc.Instance{},
-		ShardCount: shardCount.Shards,
+		ShardCount: gb.Shards,
+		GatewayBot: gb,
 	}
 
 	il.Init()
+
+	// Start the redis handler
+	redish := redis.RedisHandler{
+		Ctx:          il.Ctx,
+		InstanceList: il,
+	}
+
+	go redish.Start(il)
 
 	for _, cMap := range clusterMap {
 		log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+"): ", coreutils.ToPyListUInt64(cMap.Shards))
@@ -82,15 +98,16 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 		})
 	}
 
-	// Start the redis handler
-	redish := redis.CreateHandler(config)
-	go redish.Start(il)
-
 	if !config.UseCustomWebUI {
 		go web.StartWebserver(web.WebData{
 			RedisHandler: &redish,
 			InstanceList: il,
 		})
+	}
+
+	if gb.SessionStartLimit.Remaining < mssr {
+		log.Error("Sessions remaining is less than config.minimum_safe_sessions_remaining. Waiting for SessionStartLimit.ResetAfter seconds...")
+		time.Sleep(time.Millisecond * time.Duration(gb.SessionStartLimit.ResetAfter))
 	}
 
 	// We now start the first cluster, this cluster will then alert us over redis when to start cluster 2 (todo: timeout?)

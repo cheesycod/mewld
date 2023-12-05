@@ -15,6 +15,15 @@ func Pointer[T any](v T) *T {
 	return &v
 }
 
+func SliceContains[T comparable](s []T, e T) bool {
+	for _, a := range s {
+		if a == e {
+			return true
+		}
+	}
+	return false
+}
+
 // Creates a python compatible list
 func ToPyListUInt64(l []uint64) string {
 	var s string = "["
