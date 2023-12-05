@@ -336,13 +336,25 @@ func (l *InstanceList) Reshard() error {
 		return fmt.Errorf("cannot safely reshard to a smaller cluster size")
 	}
 
+	l.GatewayBot = gb
+	l.Map = clusterMap
+	l.ShardCount = gb.Shards
+
 	errorList := []error{}
 
 	for i, cMap := range clusterMap {
 		if i < len(l.Instances) {
+			l.Instances[i].ClusterID = cMap.ID // Always update Cluster ID. It doesn't hurt
+
+			if !l.Config.ReshardAll {
+				if utils.SlicesEqual(l.Instances[i].Shards, cMap.Shards) {
+					log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+") UNCHANGED (same shards): ", utils.ToPyListUInt64(cMap.Shards))
+					continue // No need to reshard
+				}
+			}
+
 			// We already have this cluster already, merely grow it, then restart the cluster
-			log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+") EXPANDED: ", utils.ToPyListUInt64(cMap.Shards))
-			l.Instances[i].ClusterID = cMap.ID
+			log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+") EXPANDED/RESHARDED: ", utils.ToPyListUInt64(cMap.Shards))
 			l.Instances[i].Shards = cMap.Shards
 
 			err := l.Stop(l.Instances[i])
@@ -536,12 +548,14 @@ func (l *InstanceList) StartNext() {
 func (l *InstanceList) KillAll() {
 	// Kill all instances
 	for _, i := range l.Instances {
-		if i.Command == nil {
+		if i.Command == nil || i.Command.Process == nil {
 			log.Error("Cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ") is not running")
+			i.Active = false
 		} else {
 			log.Info("Killing cluster " + l.Cluster(i).Name + " (" + strconv.Itoa(l.Cluster(i).ID) + ")")
 
 			i.AcquireLockAndLock(l, "KillAll")
+
 			i.Command.Process.Kill()
 			i.Active = false
 			i.SessionID = ""

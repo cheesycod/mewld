@@ -12,7 +12,6 @@ type CoreConfig struct {
 	OverrideDir                  string   `yaml:"override_dir"`
 	UseCurrentDirectory          bool     `yaml:"use_current_directory"`
 	UseCustomWebUI               bool     `yaml:"use_custom_webui"`
-	ExperimentalFeatures         []string `yaml:"experimental_features"` // 'reshard'
 	Env                          []string `yaml:"env"`
 	Names                        []string `yaml:"names"`
 	Redis                        string   `yaml:"redis"`
@@ -24,7 +23,9 @@ type CoreConfig struct {
 	ClusterStartNextDelay        *int     `yaml:"cluster_start_next_delay"`
 	PerCluster                   uint64   `yaml:"per_cluster"`
 	MinimumSafeSessionsRemaining *uint64  `yaml:"minimum_safe_sessions_remaining"`
-	FixedShardCount              uint64   `yaml:"fixed_shard_count"` // You likely don't want this outside of rare use cases...
+	FixedShardCount              uint64   `yaml:"fixed_shard_count"`     // You likely don't want this outside of rare use cases...
+	ExperimentalFeatures         []string `yaml:"experimental_features"` // 'reshard'
+	ReshardAll                   bool     `yaml:"reshard_all"`           // If this is false, then only clusters with differing Shard ID arrays will be resharded, otherwise all clusters will be resharded
 
 	// The command/module to run, only applicable when using DefaultStart (or the mewld executable)
 	Module string `yaml:"module"`

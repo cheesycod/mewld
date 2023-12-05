@@ -84,6 +84,21 @@ func SliceContains[T comparable](s []T, e T) bool {
 	return false
 }
 
+func SlicesEqual[T comparable](a []T, b []T) bool {
+	// If lengths are unequal
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
 // Creates a python compatible list
 func ToPyListUInt64(l []uint64) string {
 	var s string = "["
