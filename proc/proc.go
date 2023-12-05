@@ -291,7 +291,7 @@ func (l *InstanceList) Reshard() error {
 	}
 
 	if !l.FullyUp {
-		return fmt.Errorf("cannot safely reshard while starting clusters")
+		return fmt.Errorf("cannot safely reshard when not fully up")
 	}
 
 	// Lock all instances
