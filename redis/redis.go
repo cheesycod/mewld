@@ -68,7 +68,7 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 		switch cmd.Action {
 		case "diag":
 			if str, ok := cmd.Output.(string); ok {
-				log.Info(str)
+				log.Info("Recieved diag payload", str)
 
 				var diagPayload proc.DiagResponse
 
