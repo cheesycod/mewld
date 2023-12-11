@@ -43,7 +43,7 @@ func GetGatewayBot(c *config.CoreConfig) (*GatewayBot, error) {
 	req, err := http.NewRequest("GET", url, nil)
 
 	req.Header.Add("Authorization", "Bot "+c.Token)
-	req.Header.Add("User-Agent", "MewBot/1.0")
+	req.Header.Add("User-Agent", "DiscordBot (MewBot/1.0)")
 	req.Header.Add("Content-Type", "application/json")
 
 	if err != nil {
