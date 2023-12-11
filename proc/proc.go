@@ -38,7 +38,7 @@ type LoaderData struct {
 
 // Gets gateway information from discord
 func GetGatewayBot(c *config.CoreConfig) (*GatewayBot, error) {
-	url := utils.APIURL(c, "/api/v10/gateway/bot")
+	url := utils.APIURL(c, "/api/gateway/bot")
 
 	req, err := http.NewRequest("GET", url, nil)
 
