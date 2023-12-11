@@ -36,7 +36,7 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 	gb, err := proc.GetGatewayBot(config)
 
 	if err != nil {
-		log.Fatal("Failed to get gateway bot", err)
+		return nil, nil, fmt.Errorf("error getting gateway bot: %w", err)
 	}
 
 	if config.FixedShardCount > 0 {
