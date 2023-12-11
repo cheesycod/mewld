@@ -111,16 +111,6 @@ func ToPyListUInt64(l []uint64) string {
 	return s + "]"
 }
 
-func ParseUint64(s string) uint64 {
-	i, err := strconv.ParseUint(s, 10, 64)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return i
-}
-
 func UInt64ToString(i uint64) string {
 	return strconv.FormatUint(i, 10)
 }

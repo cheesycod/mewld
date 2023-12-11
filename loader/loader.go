@@ -73,7 +73,11 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 		GatewayBot: gb,
 	}
 
-	il.Init()
+	err = il.Init()
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("error initializing instance list: %w", err)
+	}
 
 	// Start the redis handler
 	redish := redis.RedisHandler{
@@ -105,7 +109,13 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 	}
 
 	// We now start the first cluster, this cluster will then alert us over redis when to start cluster 2 (todo: timeout?)
-	go il.Start(il.Instances[0])
+	go func() {
+		err = il.Start(il.Instances[0])
+
+		if err != nil {
+			log.Error("Error starting cluster 1: ", err)
+		}
+	}()
 
 	return il, &redish, nil
 }

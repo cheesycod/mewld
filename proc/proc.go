@@ -63,7 +63,7 @@ func GetGatewayBot(c *config.CoreConfig) (*GatewayBot, error) {
 	log.Println("Shard count status:", res.Status)
 
 	if res.StatusCode != 200 {
-		log.Fatal("Shard count status code not 200. Invalid token?")
+		return nil, fmt.Errorf("shard count status code not 200, got %s", res.Status)
 	}
 
 	var gb GatewayBot
@@ -71,7 +71,7 @@ func GetGatewayBot(c *config.CoreConfig) (*GatewayBot, error) {
 	bodyBytes, err := io.ReadAll(res.Body)
 
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("error reading body: %w", err)
 	}
 
 	err = json.Unmarshal(bodyBytes, &gb)
@@ -365,7 +365,12 @@ func (l *InstanceList) Reshard() error {
 			err := l.Stop(l.Instances[i])
 
 			if err == StopCodeNormal {
-				l.Start(l.Instances[i])
+				err := l.Start(l.Instances[i])
+
+				if err != nil {
+					log.Error("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+") start failure: ", err)
+					errorList = append(errorList, fmt.Errorf("cluster %d start failure: %w", i, err))
+				}
 			} else {
 				errorList = append(errorList, fmt.Errorf("cluster %d stop failure with exit code %d", i, err))
 			}
@@ -378,7 +383,12 @@ func (l *InstanceList) Reshard() error {
 				Shards:    cMap.Shards,
 			})
 
-			l.Start(l.Instances[i])
+			err = l.Start(l.Instances[i])
+
+			if err != nil {
+				log.Error("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+") start failure: ", err)
+				errorList = append(errorList, fmt.Errorf("cluster %d start failure: %w", i, err))
+			}
 		}
 	}
 
@@ -419,7 +429,7 @@ func (l *InstanceList) ActionLog(payload map[string]any) {
 // Initializes the instance list and sets needed fields, must be called
 //
 // This function may update the config URL to include sane defaults
-func (l *InstanceList) Init() {
+func (l *InstanceList) Init() error {
 	l.StartMutex = &sync.Mutex{}
 	l.GatewayBot = &GatewayBot{} // Ensure this is not nil
 
@@ -433,7 +443,7 @@ func (l *InstanceList) Init() {
 	opts, err := redis.ParseURL(l.Config.Redis)
 
 	if err != nil {
-		log.Fatal("Redis url parse error: ", err)
+		return fmt.Errorf("redis url parse error: %w", err)
 	}
 
 	opts.ReadTimeout = -1
@@ -443,11 +453,12 @@ func (l *InstanceList) Init() {
 	status := rdb.Ping(ctx)
 
 	if status.Err() != nil {
-		log.Fatal("Redis error: ", status.Err())
+		return fmt.Errorf("redis error: %w", status.Err())
 	}
 
 	l.Ctx = ctx
 	l.Redis = rdb
+	return nil
 }
 
 // Acknowledge a published message
@@ -503,7 +514,15 @@ func (l *InstanceList) RollingRestart() {
 		}
 
 		// Now start cluster again
-		l.Start(i)
+		err := l.Start(i)
+
+		if err != nil {
+			log.Error("Rolling restart failed on cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ")")
+			go l.ActionLog(map[string]any{
+				"event": "cluster_restart_failed",
+				"via":   "rolling_restart",
+			})
+		}
 
 		i.Unlock()
 
@@ -538,7 +557,16 @@ func (l *InstanceList) StartNext() {
 			snd := *l.Config.ClusterStartNextDelay
 			log.Info("Going to start *next* cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") after delay of "+strconv.Itoa(snd)+" seconds due to concurrency")
 			time.Sleep(time.Second * time.Duration(snd))
-			l.Start(i)
+			err := l.Start(i)
+
+			if err != nil {
+				log.Error("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") start failure: ", err)
+				go l.ActionLog(map[string]any{
+					"event": "cluster_start_failed",
+					"via":   "start_next",
+				})
+			}
+
 			i.Unlock() // Unlock cluster after starting
 			return
 		}
@@ -631,7 +659,7 @@ func (l *InstanceList) Stop(i *Instance) StopCode {
 }
 
 // Starts a instance in the instance list, this locks the cluster if not already locked before unlocking after startup
-func (l *InstanceList) Start(i *Instance) {
+func (l *InstanceList) Start(i *Instance) error {
 	// Mutex to prevent multiple instances from starting at the same time
 	l.StartMutex.Lock()
 	defer l.StartMutex.Unlock()
@@ -650,7 +678,7 @@ func (l *InstanceList) Start(i *Instance) {
 	cluster := l.Cluster(i)
 
 	if cluster == nil {
-		log.Fatal("Cluster not found")
+		return errors.New("cluster not found")
 	}
 
 	err := l.LoaderData.Start(l, i, cluster)
@@ -658,7 +686,7 @@ func (l *InstanceList) Start(i *Instance) {
 	i.Unlock()
 
 	if err != nil {
-		log.Error("Cluster "+cluster.Name+"("+strconv.Itoa(cluster.ID)+") failed to start", err)
+		return fmt.Errorf("cluster %d failed to start: %w", i.ClusterID, err)
 	}
 
 	i.Active = true
@@ -666,6 +694,8 @@ func (l *InstanceList) Start(i *Instance) {
 	go l.Observe(i, i.SessionID)
 
 	go l.PingCheck(i, i.SessionID)
+
+	return nil
 }
 
 // Pings a cluster every “ping_interval“ to check for responsiveness, restarts dead clusters if not responding to “diag“ ping checks
@@ -721,7 +751,16 @@ func (l *InstanceList) PingCheck(i *Instance, sid string) {
 				time.Sleep(time.Second * 1)
 				l.Stop(i)
 				time.Sleep(time.Second * 3)
-				l.Start(i)
+				err = l.Start(i)
+
+				if err != nil {
+					log.Error("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") start failure: ", err)
+					go l.ActionLog(map[string]any{
+						"event": "cluster_start_failed",
+						"via":   "ping_check",
+					})
+				}
+
 				currentlyKilling = false
 
 				i.Unlock()
@@ -780,7 +819,15 @@ func (l *InstanceList) Observe(i *Instance, sid string) {
 		time.Sleep(time.Second * 3)
 		l.Stop(i)
 		time.Sleep(time.Second * 3)
-		l.Start(i)
+		err = l.Start(i)
+
+		if err != nil {
+			log.Error("Cluster ", l.Cluster(i).Name, " (", l.Cluster(i).ID, ") start failure: ", err)
+			go l.ActionLog(map[string]any{
+				"event": "cluster_start_failed",
+				"via":   "observe",
+			})
+		}
 
 		i.Unlock()
 	}

@@ -194,7 +194,18 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 				if i.ClusterID == int(clusterId) {
 					il.Acknowledge(cmd.CommandId)
 
-					il.Start(i)
+					err := il.Start(i)
+
+					if err != nil {
+						log.Error("Could not start instance: ", err)
+						go il.ActionLog(map[string]any{
+							"event": "cluster_restart_failed",
+							"via":   "start",
+						})
+						il.SendMessage(cmd.CommandId, "could not start instance", "bot", "")
+						break
+					}
+
 					break
 				}
 			}
@@ -225,7 +236,16 @@ func (r *RedisHandler) Start(il *proc.InstanceList) {
 					err := il.Stop(i)
 
 					if err == proc.StopCodeNormal {
-						il.Start(i)
+						err := il.Start(i)
+
+						if err != nil {
+							log.Error("Could not start instance: ", err)
+							go il.ActionLog(map[string]any{
+								"event": "cluster_restart_failed",
+								"via":   "restart",
+							})
+							continue
+						}
 					} else {
 						log.Error("Could not stop instance: ", err)
 					}
