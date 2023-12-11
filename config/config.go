@@ -26,6 +26,7 @@ type CoreConfig struct {
 	FixedShardCount              uint64   `yaml:"fixed_shard_count"`     // You likely don't want this outside of rare use cases...
 	ExperimentalFeatures         []string `yaml:"experimental_features"` // 'reshard'
 	ReshardAll                   bool     `yaml:"reshard_all"`           // If this is false, then only clusters with differing Shard ID arrays will be resharded, otherwise all clusters will be resharded
+	Proxy                        string   `yaml:"proxy"`                 // If this is set, then all discord api requests will be proxied through this URL
 
 	// The command/module to run, only applicable when using DefaultStart (or the mewld executable)
 	Module string `yaml:"module"`

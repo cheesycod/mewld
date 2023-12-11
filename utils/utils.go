@@ -13,6 +13,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+func APIURL(config *config.CoreConfig, path string) string {
+	if config.Proxy != "" {
+		return config.Proxy + path
+	} else {
+		return "https://discord.com" + path
+	}
+}
+
 func ReadLines(path string) ([]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
