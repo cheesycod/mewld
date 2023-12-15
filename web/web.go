@@ -16,7 +16,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 type WebData struct {
@@ -24,24 +25,22 @@ type WebData struct {
 	InstanceList *proc.InstanceList
 }
 
-func checkAuth(webData WebData, c *gin.Context) *loginDat {
+func checkAuth(webData WebData, r *http.Request) *loginDat {
 	// Get 'session' cookie
+	sessionData := r.Header.Get("X-Session")
 
-	var session string
-	var err error
+	if sessionData == "" {
+		sessionCookie, err := r.Cookie("session")
 
-	if c.GetHeader("X-Session") != "" {
-		session = c.GetHeader("X-Session")
-	} else {
-		session, err = c.Cookie("session")
-	}
+		if err != nil {
+			return nil
+		}
 
-	if err != nil {
-		return nil
+		sessionData = sessionCookie.Value
 	}
 
 	// Check session on redis
-	redisDat := webData.InstanceList.Redis.Get(webData.InstanceList.Ctx, session).Val()
+	redisDat := webData.InstanceList.Redis.Get(webData.InstanceList.Ctx, sessionData).Val()
 
 	if redisDat == "" {
 		return nil
@@ -49,7 +48,7 @@ func checkAuth(webData WebData, c *gin.Context) *loginDat {
 
 	var sess loginDat
 
-	err = json.Unmarshal([]byte(redisDat), &sess)
+	err := json.Unmarshal([]byte(redisDat), &sess)
 
 	if err != nil {
 		return nil
@@ -71,16 +70,16 @@ func checkAuth(webData WebData, c *gin.Context) *loginDat {
 	return &sess
 }
 
-func loginRoute(webData WebData, f func(c *gin.Context, sess *loginDat)) func(c *gin.Context) {
-	return func(c *gin.Context) {
-		session := checkAuth(webData, c)
+func loginRoute(webData WebData, f func(w http.ResponseWriter, r *http.Request, sess *loginDat)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session := checkAuth(webData, r)
 
 		if session != nil {
-			f(c, session)
+			f(w, r, session)
 			return
 		}
 
-		c.Redirect(302, "/login?redirect="+c.Request.URL.Path)
+		http.Redirect(w, r, "/login?redirect="+r.URL.Path, http.StatusFound)
 	}
 }
 
@@ -97,58 +96,40 @@ type loginDat struct {
 	AccessToken string `json:"access_token"`
 }
 
-func StartWebserver(webData WebData) {
+func StartWebserver(webData WebData) http.Server {
 	// Create webserver using gin
-	r := gin.New()
+	r := chi.NewMux()
 
-	r.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
-		if param.Path == "/ping" || param.Path == "/action-logs" {
-			return ""
-		}
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(cors)
 
-		// your custom format
-		return fmt.Sprintf("%s - \"%s %s %d %s \"%s\" %s\"\n",
-			param.ClientIP,
-			param.Method,
-			param.Path,
-			param.StatusCode,
-			param.Latency,
-			param.Request.UserAgent(),
-			param.ErrorMessage,
-		)
-	}))
-	r.Use(gin.Recovery())
-	r.Use(cors())
-
-	// Wildcat route
-	r.OPTIONS("/*c", func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", c.GetHeader("Origin"))
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, PATCH, DELETE")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-Session")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Mewld instance up, use mewld-ui to access it using your browser"))
 	})
 
-	r.GET("/", func(c *gin.Context) {
-		c.String(200, "Mewld instance up, use mewld-ui to access it using your browser")
-	})
-
-	r.GET("/ping", loginRoute(
+	r.Get("/ping", loginRoute(
 		webData,
-		func(c *gin.Context, sess *loginDat) {
-			c.String(200, "pong")
+		func(w http.ResponseWriter, r *http.Request, sessData *loginDat) {
+			w.Write([]byte("pong"))
 		},
 	))
 
-	r.GET("/instance-list", loginRoute(
+	r.Get("/instance-list", loginRoute(
 		webData,
-		func(c *gin.Context, sess *loginDat) {
-			c.JSON(200, webData.InstanceList)
+		func(w http.ResponseWriter, r *http.Request, sessData *loginDat) {
+			err := json.NewEncoder(w).Encode(webData.InstanceList)
+
+			if err != nil {
+				w.Write([]byte(err.Error()))
+				w.WriteHeader(http.StatusInternalServerError)
+			}
 		},
 	))
 
-	r.GET("/action-logs", loginRoute(
+	r.Get("/action-logs", loginRoute(
 		webData,
-		func(c *gin.Context, sess *loginDat) {
+		func(w http.ResponseWriter, r *http.Request, sessData *loginDat) {
 			payload := webData.InstanceList.Redis.LRange(webData.InstanceList.Ctx, webData.InstanceList.Config.RedisChannel+"/actlogs", 0, -1).Val()
 
 			var payloadFinal []map[string]any
@@ -159,25 +140,31 @@ func StartWebserver(webData WebData) {
 				err := json.Unmarshal([]byte(p), &pm)
 
 				if err != nil {
-					c.String(400, "Could not marshal payload %d: %w", i, err)
+					w.Write([]byte(fmt.Sprintf("Could not unmarshal payload %d: %s", i, err.Error())))
 					return
 				}
 
 				payloadFinal = append(payloadFinal, pm)
 			}
 
-			c.JSON(200, payloadFinal)
+			err := json.NewEncoder(w).Encode(payloadFinal)
+
+			if err != nil {
+				w.Write([]byte(err.Error()))
+				w.WriteHeader(http.StatusInternalServerError)
+			}
 		},
 	))
 
-	r.POST("/redis/pub", loginRoute(
+	r.Post("/redis/pub", loginRoute(
 		webData,
-		func(c *gin.Context, sess *loginDat) {
-			payload, err := io.ReadAll(c.Request.Body)
+		func(w http.ResponseWriter, r *http.Request, sessData *loginDat) {
+			payload, err := io.ReadAll(r.Body)
 
 			if err != nil {
 				log.Error(err)
-				c.String(500, "Error reading body")
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("Error reading body:" + err.Error()))
 				return
 			}
 
@@ -185,10 +172,10 @@ func StartWebserver(webData WebData) {
 		},
 	))
 
-	r.GET("/cluster-health", loginRoute(
+	r.Get("/cluster-health", loginRoute(
 		webData,
-		func(c *gin.Context, sess *loginDat) {
-			var cid = c.Query("cid")
+		func(w http.ResponseWriter, r *http.Request, sess *loginDat) {
+			var cid = r.URL.Query().Get("cid")
 
 			if cid == "" {
 				cid = "0"
@@ -197,231 +184,90 @@ func StartWebserver(webData WebData) {
 			cInt, err := strconv.Atoi(cid)
 
 			if err != nil {
-				c.JSON(400, gin.H{
-					"error": "Invalid cid",
-				})
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte("{\"error\": \"Invalid cid, could not parse as int\"}"))
 				return
 			}
 
 			instance := webData.InstanceList.InstanceByID(cInt)
 
 			if instance == nil {
-				c.JSON(400, gin.H{
-					"error": "Invalid cid",
-				})
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte("{\"error\": \"Invalid cid, no such instance\"}"))
 				return
 			}
 
 			if instance.ClusterHealth == nil {
 				if !instance.LaunchedFully {
-					c.JSON(400, gin.H{
-						"error": "Instance not fully up",
-					})
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadRequest)
+					w.Write([]byte("{\"error\": \"Instance not fully launched\"}"))
 					return
 				}
 				ch, err := webData.InstanceList.ScanShards(instance)
 
 				if err != nil {
-					c.JSON(400, gin.H{
+					var m = map[string]string{
 						"error": "Error scanning shards: " + err.Error(),
-					})
+					}
+
+					bytes, err := json.Marshal(m)
+
+					if err != nil {
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusInternalServerError)
+						w.Write([]byte("{\"error\": \"Error scanning shards: unable to unmarshal payload\"}"))
+						return
+					}
+
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadRequest)
+					w.Write(bytes)
 					return
 				}
 
 				instance.ClusterHealth = ch
 			}
 
-			c.JSON(200, map[string]any{
+			data := map[string]any{
 				"locked": instance.Locked(),
 				"health": instance.ClusterHealth,
-			})
+			}
+
+			bytes, err := json.Marshal(data)
+
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("{\"error\": \"Error marshalling data: unable to unmarshal payload\"}"))
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write(bytes)
 		},
 	))
 
-	r.GET("/cperms", loginRoute(
-		webData,
-		func(c *gin.Context, sess *loginDat) {
-			// /applications/{application.id}/guilds/{guild.id}/commands/{command.id}/permissions
-
-			guildId := c.Query("guildId")
-
-			if guildId == "" {
-				c.JSON(400, gin.H{
-					"message": "guildId is required",
-				})
-				return
-			}
-
-			commandId := c.Query("commandId")
-
-			if commandId == "" {
-				c.JSON(400, gin.H{
-					"message": "commandId is required",
-				})
-				return
-			}
-
-			res, err := http.NewRequest(
-				"GET",
-				"https://discord.com/api/v10/applications/"+webData.InstanceList.Config.Oauth.ClientID+"/guilds/"+guildId+"/commands/"+commandId+"/permissions",
-				nil,
-			)
-
-			if err != nil {
-				log.Error(err)
-				c.String(500, err.Error())
-				return
-			}
-
-			res.Header.Set("Authorization", "Bot "+webData.InstanceList.Config.Token)
-			res.Header.Set("User-Agent", "DiscordBot (WebUI/1.0)")
-
-			client := &http.Client{Timeout: time.Second * 10}
-
-			resp, err := client.Do(res)
-
-			if err != nil {
-				log.Error(err)
-				c.String(500, err.Error())
-				return
-			}
-
-			defer resp.Body.Close()
-
-			body, err := io.ReadAll(resp.Body)
-
-			if err != nil {
-				log.Error(err)
-				c.String(500, err.Error())
-				return
-			}
-
-			c.Header("Content-Type", "application/json")
-			c.String(200, string(body))
-		},
-	))
-
-	r.GET("/commands", loginRoute(
-		webData,
-		func(c *gin.Context, sess *loginDat) {
-			//"/applications/{application.id}/guilds/{guild.id}/commands"
-
-			guildId := c.Query("guildId")
-
-			if guildId == "" {
-				c.JSON(400, gin.H{
-					"message": "guildId is required",
-				})
-				return
-			}
-
-			res, err := http.NewRequest(
-				"GET",
-				"https://discord.com/api/v10/applications/"+webData.InstanceList.Config.Oauth.ClientID+"/guilds/"+guildId+"/commands",
-				nil,
-			)
-
-			if err != nil {
-				log.Error(err)
-				c.String(500, err.Error())
-				return
-			}
-
-			res.Header.Set("Authorization", "Bot "+webData.InstanceList.Config.Token)
-			res.Header.Set("User-Agent", "DiscordBot (WebUI/1.0)")
-
-			client := &http.Client{Timeout: time.Second * 10}
-
-			resp, err := client.Do(res)
-
-			if err != nil {
-				log.Error(err)
-				c.String(500, err.Error())
-				return
-			}
-
-			defer resp.Body.Close()
-
-			body, err := io.ReadAll(resp.Body)
-
-			if err != nil {
-				log.Error(err)
-				c.String(500, err.Error())
-				return
-			}
-
-			c.Header("Content-Type", "application/json")
-			c.String(200, string(body))
-		},
-	))
-
-	r.GET("/guilds", loginRoute(
-		webData,
-		func(c *gin.Context, sess *loginDat) {
-			// Check for guilds on redis
-			redisGuilds := webData.InstanceList.Redis.Get(webData.InstanceList.Ctx, sess.ID+"_guilds").Val()
-
-			if redisGuilds != "" {
-				c.Header("Content-Type", "application/json")
-				c.Header("X-Cached", "true")
-				c.String(200, redisGuilds)
-				return
-			}
-
-			res, err := http.NewRequest("GET", "https://discord.com/api/v10/users/@me/guilds", nil)
-
-			if err != nil {
-				log.Error(err)
-				c.String(500, err.Error())
-				return
-			}
-
-			res.Header.Set("Authorization", "Bearer "+sess.AccessToken)
-
-			client := &http.Client{Timeout: time.Second * 10}
-
-			resp, err := client.Do(res)
-
-			if err != nil {
-				log.Error(err)
-				c.String(500, err.Error())
-				return
-			}
-
-			defer resp.Body.Close()
-
-			body, err := io.ReadAll(resp.Body)
-
-			if err != nil {
-				log.Error(err)
-				c.String(500, err.Error())
-				return
-			}
-
-			webData.InstanceList.Redis.Set(webData.InstanceList.Ctx, sess.ID+"_guilds", string(body), 5*time.Minute).Val()
-
-			c.Header("Content-Type", "application/json")
-			c.String(200, string(body))
-		},
-	))
-
-	r.GET("/login", func(c *gin.Context) {
+	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
 		// Redirect via discord oauth2
-		url := "https://discord.com/api/oauth2/authorize?client_id=" + webData.InstanceList.Config.Oauth.ClientID + "&redirect_uri=" + webData.InstanceList.Config.Oauth.RedirectURL + "/confirm&response_type=code&scope=identify%20guilds%20applications.commands.permissions.update&state=" + c.Query("api")
+		url := "https://discord.com/api/oauth2/authorize?client_id=" + webData.InstanceList.Config.Oauth.ClientID + "&redirect_uri=" + webData.InstanceList.Config.Oauth.RedirectURL + "/confirm&response_type=code&scope=identify%20guilds%20applications.commands.permissions.update&state=" + r.URL.Query().Get("api")
 
 		// For upcoming sveltekit webui rewrite
-		if c.Query("api") == "" {
-			c.Redirect(302, url)
+		if r.URL.Query().Get("api") == "" {
+			http.Redirect(w, r, url, http.StatusFound)
 		} else {
-			c.String(200, url)
+			w.Write([]byte(url))
 		}
 	})
 
-	r.GET("/confirm", func(c *gin.Context) {
+	r.Get("/confirm", func(w http.ResponseWriter, r *http.Request) {
 		// Handle confirmation from discord oauth2
-		code := c.Query("code")
+		code := r.URL.Query().Get("code")
 
-		state := c.Query("state")
+		state := r.URL.Query().Get("state")
 
 		// Add form data
 		form := url.Values{}
@@ -435,7 +281,8 @@ func StartWebserver(webData WebData) {
 
 		if err != nil {
 			log.Error(err)
-			c.String(http.StatusInternalServerError, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
@@ -451,7 +298,8 @@ func StartWebserver(webData WebData) {
 
 		if err != nil {
 			log.Error(err)
-			c.String(http.StatusInternalServerError, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
@@ -462,7 +310,8 @@ func StartWebserver(webData WebData) {
 
 		if err != nil {
 			log.Error(err)
-			c.String(http.StatusInternalServerError, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
@@ -473,21 +322,21 @@ func StartWebserver(webData WebData) {
 
 		if err != nil {
 			log.Error(err)
-			c.String(http.StatusInternalServerError, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
 		// Close body
 		res.Body.Close()
 
-		log.Info("Access Token: ", discordToken.AccessToken)
-
 		// Get user info and create session cookie
 		req, err = http.NewRequest("GET", "https://discord.com/api/users/@me", nil)
 
 		if err != nil {
 			log.Error(err)
-			c.String(http.StatusInternalServerError, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
@@ -500,7 +349,8 @@ func StartWebserver(webData WebData) {
 
 		if err != nil {
 			log.Error(err)
-			c.String(http.StatusInternalServerError, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
@@ -509,7 +359,8 @@ func StartWebserver(webData WebData) {
 
 		if err != nil {
 			log.Error(err)
-			c.String(http.StatusInternalServerError, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
@@ -520,7 +371,8 @@ func StartWebserver(webData WebData) {
 
 		if err != nil {
 			log.Error(err)
-			c.String(http.StatusInternalServerError, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
@@ -536,7 +388,8 @@ func StartWebserver(webData WebData) {
 
 		if !allowed {
 			log.Error("User not allowed")
-			c.String(http.StatusInternalServerError, "User not allowed")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("User not allowed"))
 			return
 		}
 
@@ -551,33 +404,46 @@ func StartWebserver(webData WebData) {
 
 		if err != nil {
 			log.Error(err)
-			c.String(http.StatusInternalServerError, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
 		webData.InstanceList.Redis.Set(webData.InstanceList.Ctx, sessionTok, string(jsonBytes), time.Minute*30)
+
+		// Set cookie "session"
+		c := http.Cookie{
+			Name:    "session",
+			Value:   sessionTok,
+			Expires: time.Now().Add(time.Minute * 30),
+			Path:    "/",
+		}
+
+		http.SetCookie(w, &c)
 
 		if strings.HasPrefix(state, "api") {
 			split := strings.Split(state, "@")
 
 			if len(split) != 3 {
 				log.Error("Invalid state")
-				c.String(http.StatusInternalServerError, "Invalid state")
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("Invalid state"))
 				return
 			}
 
 			url := split[1]
 			iUrl := split[2]
 
-			c.Redirect(302, url+"/ss?session="+sessionTok+"&instanceUrl="+iUrl)
+			http.Redirect(w, r, url+"/ss?session="+sessionTok+"&instanceUrl="+iUrl, http.StatusFound)
+			return
 		}
 
-		// Set cookie
-		c.SetCookie("session", sessionTok, int(time.Hour.Seconds()), "/", "", false, true)
-
 		// Redirect to dashboard
-		c.Redirect(302, "/")
+		http.Redirect(w, r, "/", http.StatusFound)
 	})
 
-	r.Run("0.0.0.0:1293") // listen and serve
+	return http.Server{
+		Addr:    ":1293",
+		Handler: r,
+	}
 }

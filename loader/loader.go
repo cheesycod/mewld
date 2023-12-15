@@ -97,10 +97,18 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 	}
 
 	if !config.UseCustomWebUI {
-		go web.StartWebserver(web.WebData{
-			RedisHandler: &redish,
-			InstanceList: il,
-		})
+		go func() {
+			srv := web.StartWebserver(web.WebData{
+				RedisHandler: &redish,
+				InstanceList: il,
+			})
+
+			err := srv.ListenAndServe()
+
+			if err != nil {
+				log.Error("Error starting webserver: ", err)
+			}
+		}()
 	}
 
 	if gb.SessionStartLimit.Remaining < mssr {
