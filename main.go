@@ -53,6 +53,8 @@ func main() {
 
 	if os.Getenv("MTOKEN") != "" {
 		config.Token = os.Getenv("MTOKEN")
+	} else {
+		os.Setenv("MTOKEN", config.Token)
 	}
 
 	il, _, err := loader.Load(&config, nil)
