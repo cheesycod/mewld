@@ -32,8 +32,9 @@ var (
 
 // Internal loader data, to make mewld embeddable and more extendible
 type LoaderData struct {
-	Start     func(l *InstanceList, i *Instance, cm *ClusterMap) error                                         // Start function
-	OnReshard func(l *InstanceList, i *Instance, cm *ClusterMap, oldShards []uint64, newShards []uint64) error // OnReshard function is called when the bot is resharded by mewld
+	Start       func(l *InstanceList, i *Instance, cm *ClusterMap) error                                         // Start function
+	OnReshard   func(l *InstanceList, i *Instance, cm *ClusterMap, oldShards []uint64, newShards []uint64) error // OnReshard function is called when the bot is resharded by mewld
+	OnActionLog func(payload map[string]any) error
 }
 
 // Gets gateway information from discord
@@ -414,6 +415,14 @@ func (l *InstanceList) ActionLog(payload map[string]any) {
 	payload["ts"] = time.Now().UnixMicro()
 
 	log.Info("Posting action log: ", payload)
+
+	if l.LoaderData.OnActionLog != nil {
+		err := l.LoaderData.OnActionLog(payload)
+
+		if err != nil {
+			log.Error("Error posting action log [OnActionLog]", err)
+		}
+	}
 
 	pBytes, err := json.Marshal(payload)
 
