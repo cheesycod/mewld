@@ -51,7 +51,7 @@ func GetGatewayBot(c *config.CoreConfig) (*GatewayBot, error) {
 		return nil, err
 	}
 
-	client := http.Client{Timeout: 10 * time.Second}
+	client := http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{}}
 
 	res, err := client.Do(req)
 
