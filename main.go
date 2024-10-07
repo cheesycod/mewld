@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"io"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/cheesycod/mewld/config"
+	"github.com/cheesycod/mewld/ipc/redis"
 	"github.com/cheesycod/mewld/loader"
 	"github.com/cheesycod/mewld/utils"
 
@@ -57,7 +59,13 @@ func main() {
 		os.Setenv("MTOKEN", config.Token)
 	}
 
-	il, _, err := loader.Load(&config, nil)
+	redisIpc, err := redis.NewWithRedis(context.Background(), config.Redis, config.RedisChannel)
+
+	if err != nil {
+		log.Fatal("Error creating redis IPC: ", err)
+	}
+
+	il, err := loader.Load(&config, nil, redisIpc)
 
 	if err != nil {
 		log.Fatal("Error loading instances: ", err)

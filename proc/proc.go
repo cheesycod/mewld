@@ -10,15 +10,14 @@ import (
 	"net/http"
 	"os/exec"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/cheesycod/mewld/config"
+	"github.com/cheesycod/mewld/ipc"
 	"github.com/cheesycod/mewld/utils"
 
-	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -141,13 +140,13 @@ type InstanceList struct {
 	Map                  []ClusterMap       `json:"Map"`            // The list of clusters (ClusterMap) which defines how mewld will start clusters
 	Instances            []*Instance        `json:"Instances"`      // The list of instances (Instance) which are running
 	ShardCount           uint64             `json:"ShardCount"`     // The number of shards in ``mewld``
-	GatewayBot           *GatewayBot        `json:"GetGatewayBot"`  // The response from Get Gateway Bot
+	GatewayBot           GatewayBot         `json:"GetGatewayBot"`  // The response from Get Gateway Bot
 	Config               *config.CoreConfig `json:"-"`              // The configuration for ``mewld`` ANTIRAID-SPECIFIC: Don't marshal this into JSON
 	LoaderData           *LoaderData        `json:"-"`              // Internal loader data, to make mewld embeddable
 	Dir                  string             `json:"Dir"`            // The base directory instances will use when loading clusters
-	Redis                *redis.Client      `json:"-"`              // Core redis instance
+	IPC                  ipc.Ipc            `json:"-"`              // IPC interface for mewld
 	Ctx                  context.Context    `json:"-"`              // Context for redis
-	StartMutex           *sync.Mutex        `json:"-"`              // Internal mutex to prevent multiple instances from starting at the same time
+	StartMutex           sync.Mutex         `json:"-"`              // Internal mutex to prevent multiple instances from starting at the same time
 	RollRestarting       bool               `json:"RollRestarting"` // whether or not we are roll restarting (rolling restart)
 	FullyUp              bool               `json:"FullyUp"`        // whether or not we are fully up
 }
@@ -250,7 +249,7 @@ func (l *InstanceList) ScanShards(i *Instance) ([]ShardHealth, error) {
 		return nil, err
 	}
 
-	err = l.Redis.Publish(l.Ctx, l.Config.RedisChannel, diagBytes).Err()
+	err = l.IPC.Write(diagBytes)
 
 	if err != nil {
 		return nil, err
@@ -342,7 +341,7 @@ func (l *InstanceList) Reshard() error {
 		return fmt.Errorf("cannot safely reshard to a smaller cluster size")
 	}
 
-	l.GatewayBot = gb
+	l.GatewayBot = *gb
 	l.Map = clusterMap
 	l.ShardCount = gb.Shards
 
@@ -430,44 +429,9 @@ func (l *InstanceList) ActionLog(payload map[string]any) {
 		log.Error("Error marshalling action log", err)
 	}
 
-	if l.Redis.RPush(l.Ctx, l.Config.RedisChannel+"/actlogs", pBytes).Err() != nil {
+	if l.IPC.StoreKey("actlogs", pBytes) != nil {
 		log.Error("Error adding action log", err)
 	}
-}
-
-// Initializes the instance list and sets needed fields, must be called
-//
-// This function may update the config URL to include sane defaults
-func (l *InstanceList) Init() error {
-	l.StartMutex = &sync.Mutex{}
-	l.GatewayBot = &GatewayBot{} // Ensure this is not nil
-
-	ctx := context.Background()
-
-	if !strings.HasPrefix(l.Config.Redis, "redis://") {
-		// Assume config URL with some sane defaults
-		l.Config.Redis = "redis://" + l.Config.Redis + "/0"
-	}
-
-	opts, err := redis.ParseURL(l.Config.Redis)
-
-	if err != nil {
-		return fmt.Errorf("redis url parse error: %w", err)
-	}
-
-	opts.ReadTimeout = -1
-
-	rdb := redis.NewClient(opts)
-
-	status := rdb.Ping(ctx)
-
-	if status.Err() != nil {
-		return fmt.Errorf("redis error: %w", status.Err())
-	}
-
-	l.Ctx = ctx
-	l.Redis = rdb
-	return nil
 }
 
 // Acknowledge a published message
@@ -475,7 +439,7 @@ func (l *InstanceList) Acknowledge(cmdId string) error {
 	return l.SendMessage(cmdId, "ok", "bot", "")
 }
 
-// Sends a message to redis
+// Sends a message to IPC
 func (l *InstanceList) SendMessage(cmdId string, payload any, scope string, action string) error {
 	msg := map[string]any{
 		"command_id": cmdId,
@@ -490,9 +454,7 @@ func (l *InstanceList) SendMessage(cmdId string, payload any, scope string, acti
 		return err
 	}
 
-	err = l.Redis.Publish(l.Ctx, l.Config.RedisChannel, bytes).Err()
-
-	return err
+	return l.IPC.Write(bytes)
 }
 
 // Begins a rolling restart, should be called as a seperate goroutine

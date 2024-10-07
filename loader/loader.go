@@ -1,13 +1,14 @@
 package loader
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/cheesycod/mewld/config"
+	"github.com/cheesycod/mewld/ipc"
 	"github.com/cheesycod/mewld/proc"
-	"github.com/cheesycod/mewld/redis"
 	"github.com/cheesycod/mewld/utils"
 	"github.com/cheesycod/mewld/web"
 
@@ -15,13 +16,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.InstanceList, *redis.RedisHandler, error) {
+func Load(config *config.CoreConfig, loaderData *proc.LoaderData, ipc ipc.Ipc) (*proc.InstanceList, error) {
 	var err error
 	if len(config.Env) > 0 {
 		err = godotenv.Load(config.Env...)
 
 		if err != nil {
-			return nil, nil, fmt.Errorf("error loading env files: %w", err)
+			return nil, fmt.Errorf("error loading env files: %w", err)
 		}
 
 		log.Println("Env files loaded")
@@ -36,7 +37,7 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 	gb, err := proc.GetGatewayBot(config)
 
 	if err != nil {
-		return nil, nil, fmt.Errorf("error getting gateway bot: %w", err)
+		return nil, fmt.Errorf("error getting gateway bot: %w", err)
 	}
 
 	if config.FixedShardCount > 0 {
@@ -54,7 +55,7 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 	dir, err := utils.ConfigGetDirectory(config)
 
 	if err != nil {
-		return nil, nil, fmt.Errorf("error getting directory: %w", err)
+		return nil, fmt.Errorf("error getting directory: %w", err)
 	}
 
 	if loaderData == nil {
@@ -64,28 +65,22 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 	}
 
 	il := &proc.InstanceList{
+		Ctx:        context.Background(),
 		Config:     config,
 		LoaderData: loaderData,
 		Dir:        dir,
 		Map:        clusterMap,
 		Instances:  []*proc.Instance{},
 		ShardCount: gb.Shards,
-		GatewayBot: gb,
+		GatewayBot: *gb,
+		IPC:        ipc,
 	}
 
-	err = il.Init()
+	err = il.IPC.Connect()
 
 	if err != nil {
-		return nil, nil, fmt.Errorf("error initializing instance list: %w", err)
+		return nil, fmt.Errorf("error connecting to ipc: %w", err)
 	}
-
-	// Start the redis handler
-	redish := redis.RedisHandler{
-		Ctx:          il.Ctx,
-		InstanceList: il,
-	}
-
-	go redish.Start(il)
 
 	for _, cMap := range clusterMap {
 		log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+"): ", utils.ToPyListUInt64(cMap.Shards))
@@ -99,7 +94,6 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 	if !config.UseCustomWebUI {
 		go func() {
 			srv := web.StartWebserver(web.WebData{
-				RedisHandler: &redish,
 				InstanceList: il,
 			})
 
@@ -125,5 +119,5 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData) (*proc.Instanc
 		}
 	}()
 
-	return il, &redish, nil
+	return il, nil
 }

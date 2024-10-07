@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/cheesycod/mewld/proc"
-	"github.com/cheesycod/mewld/redis"
 	"github.com/cheesycod/mewld/utils"
 
 	log "github.com/sirupsen/logrus"
@@ -21,7 +20,6 @@ import (
 )
 
 type WebData struct {
-	RedisHandler *redis.RedisHandler
 	InstanceList *proc.InstanceList
 }
 
@@ -39,16 +37,16 @@ func checkAuth(webData WebData, r *http.Request) *loginDat {
 		sessionData = sessionCookie.Value
 	}
 
-	// Check session on redis
-	redisDat := webData.InstanceList.Redis.Get(webData.InstanceList.Ctx, sessionData).Val()
+	// Check session
+	redisDat, err := webData.InstanceList.IPC.GetKey(sessionData)
 
-	if redisDat == "" {
+	if err != nil || string(redisDat) == "" {
 		return nil
 	}
 
 	var sess loginDat
 
-	err := json.Unmarshal([]byte(redisDat), &sess)
+	err = json.Unmarshal([]byte(redisDat), &sess)
 
 	if err != nil {
 		return nil
@@ -130,7 +128,13 @@ func StartWebserver(webData WebData) http.Server {
 	r.Get("/action-logs", loginRoute(
 		webData,
 		func(w http.ResponseWriter, r *http.Request, sessData *loginDat) {
-			payload := webData.InstanceList.Redis.LRange(webData.InstanceList.Ctx, webData.InstanceList.Config.RedisChannel+"/actlogs", 0, -1).Val()
+			payload, err := webData.InstanceList.IPC.GetKey_Array("actlogs")
+
+			if err != nil {
+				w.Write([]byte(err.Error()))
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 
 			var payloadFinal []map[string]any
 
@@ -147,7 +151,7 @@ func StartWebserver(webData WebData) http.Server {
 				payloadFinal = append(payloadFinal, pm)
 			}
 
-			err := json.NewEncoder(w).Encode(payloadFinal)
+			err = json.NewEncoder(w).Encode(payloadFinal)
 
 			if err != nil {
 				w.Write([]byte(err.Error()))
@@ -168,7 +172,7 @@ func StartWebserver(webData WebData) http.Server {
 				return
 			}
 
-			webData.InstanceList.Redis.Publish(webData.InstanceList.Ctx, webData.InstanceList.Config.RedisChannel, string(payload))
+			webData.InstanceList.IPC.Write(payload)
 		},
 	))
 
@@ -409,7 +413,7 @@ func StartWebserver(webData WebData) http.Server {
 			return
 		}
 
-		webData.InstanceList.Redis.Set(webData.InstanceList.Ctx, sessionTok, string(jsonBytes), time.Minute*30)
+		webData.InstanceList.IPC.StoreKey(sessionTok, jsonBytes)
 
 		// Set cookie "session"
 		c := http.Cookie{

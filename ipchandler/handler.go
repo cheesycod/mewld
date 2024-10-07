@@ -1,5 +1,5 @@
-// Redis manager for mewld
-package redis
+// IPC handler for mewld
+package ipchandler
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 )
 
 // A Handler for redis
-type RedisHandler struct {
+type IpcHandler struct {
 	Ctx          context.Context    `json:"-"` // A different context is used here to allow for some customizability
 	InstanceList *proc.InstanceList `json:"-"`
 }
@@ -42,22 +42,27 @@ type numproc struct {
 	Shards   uint64 `json:"shards"`
 }
 
-func (r *RedisHandler) Start(il *proc.InstanceList) {
+func (r *IpcHandler) Start(il *proc.InstanceList) {
 	// Start pubsub
-	pubsub := r.InstanceList.Redis.Subscribe(r.Ctx, il.Config.RedisChannel)
+	err := r.InstanceList.IPC.Connect()
 
-	defer pubsub.Close()
+	if err != nil {
+		log.Error("Could not connect to IPC: ", err)
+		os.Exit(1)
+	}
+
+	defer r.InstanceList.IPC.Disconnect()
 
 	// Start listening for messages
-	for msg := range pubsub.Channel() {
-		log.Debug("Got redis message: ", msg.Payload)
+	for msg := range r.InstanceList.IPC.Read() {
+		log.Debug("Got redis message: ", msg)
 
 		var cmd LauncherCmd
 
-		err := json.Unmarshal([]byte(msg.Payload), &cmd)
+		err := json.Unmarshal([]byte(msg), &cmd)
 
 		if err != nil {
-			log.Error("Could not unmarshal message: ", err, ": ", msg.Payload)
+			log.Error("Could not unmarshal message: ", err, ": ", msg)
 			continue
 		}
 
