@@ -59,11 +59,12 @@ func (r *RedisHandler) Connect() error {
 
 	go func() {
 		// Start listening for messages
+		ch := pubsub.Channel()
 		for {
 			select {
 			case <-r.Ctx.Done():
 				return
-			case msg := <-pubsub.Channel():
+			case msg := <-ch:
 				if msg == nil {
 					fmt.Println("nil message")
 					continue
