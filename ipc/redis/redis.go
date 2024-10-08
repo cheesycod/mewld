@@ -64,6 +64,9 @@ func (r *RedisHandler) Connect() error {
 			case <-r.Ctx.Done():
 				return
 			case msg := <-pubsub.Channel():
+				if msg == nil {
+					panic("nil message")
+				}
 				r.msgChan <- []byte(msg.Payload)
 			}
 		}
