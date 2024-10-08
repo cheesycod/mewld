@@ -55,14 +55,13 @@ func (r *RedisHandler) Connect() error {
 	// Start pubsub
 	pubsub := r.Redis.Subscribe(r.Ctx, r.RedisChannel)
 
-	defer pubsub.Close()
-
 	go func() {
 		// Start listening for messages
 		ch := pubsub.Channel()
 		for {
 			select {
 			case <-r.Ctx.Done():
+				pubsub.Close()
 				return
 			case msg := <-ch:
 				if msg == nil {
