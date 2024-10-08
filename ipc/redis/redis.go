@@ -67,7 +67,10 @@ func (r *RedisHandler) Connect() error {
 				if msg == nil {
 					continue
 				}
+
+				fmt.Println("Received message: ", msg.Payload)
 				r.msgChan <- []byte(msg.Payload)
+				fmt.Println("Sent message to channel")
 			}
 		}
 	}()
