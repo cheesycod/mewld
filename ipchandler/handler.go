@@ -14,7 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// A Handler for redis
+// A Handler for IPC
 type IpcHandler struct {
 	Ctx          context.Context    `json:"-"` // A different context is used here to allow for some customizability
 	InstanceList *proc.InstanceList `json:"-"`

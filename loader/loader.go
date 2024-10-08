@@ -8,6 +8,7 @@ import (
 
 	"github.com/cheesycod/mewld/config"
 	"github.com/cheesycod/mewld/ipc"
+	"github.com/cheesycod/mewld/ipchandler"
 	"github.com/cheesycod/mewld/proc"
 	"github.com/cheesycod/mewld/utils"
 	"github.com/cheesycod/mewld/web"
@@ -81,6 +82,14 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData, ipc ipc.Ipc) (
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to ipc: %w", err)
 	}
+
+	// Start the IPC handler
+	ipch := ipchandler.IpcHandler{
+		Ctx:          il.Ctx,
+		InstanceList: il,
+	}
+
+	go ipch.Start(il)
 
 	for _, cMap := range clusterMap {
 		log.Info("Cluster ", cMap.Name, "("+strconv.Itoa(cMap.ID)+"): ", utils.ToPyListUInt64(cMap.Shards))
