@@ -42,15 +42,15 @@ func NewWithRedis(ctx context.Context, redisURL string, redisChannel string) (*R
 		Ctx:          ctx,
 		Redis:        rdb,
 		RedisChannel: redisChannel,
+		msgChan:      make(chan []byte, 100),
 	}, nil
 }
 
 func (r *RedisHandler) Connect() error {
 	if r.msgChan != nil {
 		close(r.msgChan)
+		r.msgChan = make(chan []byte, 100)
 	}
-
-	r.msgChan = make(chan []byte, 100)
 
 	// Start pubsub
 	pubsub := r.Redis.Subscribe(r.Ctx, r.RedisChannel)
