@@ -13,7 +13,8 @@ type RedisHandler struct {
 	Redis        *redis.Client   `json:"-"`
 	RedisChannel string          `json:"-"`
 
-	msgChan chan []byte
+	cancel  context.CancelFunc `json:"-"`
+	msgChan chan []byte        `json:"-"`
 }
 
 func NewWithRedis(ctx context.Context, redisURL string, redisChannel string) (*RedisHandler, error) {
@@ -38,20 +39,18 @@ func NewWithRedis(ctx context.Context, redisURL string, redisChannel string) (*R
 		return nil, fmt.Errorf("redis error: %w", status.Err())
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+
 	return &RedisHandler{
 		Ctx:          ctx,
 		Redis:        rdb,
 		RedisChannel: redisChannel,
+		cancel:       cancel,
 		msgChan:      make(chan []byte, 100),
 	}, nil
 }
 
 func (r *RedisHandler) Connect() error {
-	if r.msgChan != nil {
-		close(r.msgChan)
-		r.msgChan = make(chan []byte, 100)
-	}
-
 	// Start pubsub
 	pubsub := r.Redis.Subscribe(r.Ctx, r.RedisChannel)
 
@@ -61,11 +60,11 @@ func (r *RedisHandler) Connect() error {
 		for {
 			select {
 			case <-r.Ctx.Done():
+				fmt.Println("Context done, closing pubsub")
 				pubsub.Close()
 				return
 			case msg := <-ch:
 				if msg == nil {
-					fmt.Println("nil message")
 					continue
 				}
 				r.msgChan <- []byte(msg.Payload)
@@ -77,7 +76,7 @@ func (r *RedisHandler) Connect() error {
 }
 
 func (r *RedisHandler) Disconnect() error {
-	close(r.msgChan)
+	r.cancel()
 	return nil
 }
 
