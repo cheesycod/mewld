@@ -77,12 +77,6 @@ func Load(config *config.CoreConfig, loaderData *proc.LoaderData, ipc ipc.Ipc) (
 		IPC:        ipc,
 	}
 
-	err = il.IPC.Connect()
-
-	if err != nil {
-		return nil, fmt.Errorf("error connecting to ipc: %w", err)
-	}
-
 	// Start the IPC handler
 	ipch := ipchandler.IpcHandler{
 		Ctx:          il.Ctx,
