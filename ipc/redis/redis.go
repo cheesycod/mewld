@@ -65,7 +65,7 @@ func (r *RedisHandler) Connect() error {
 				return
 			case msg := <-ch:
 				if msg == nil {
-					continue
+					panic("nil message recieved")
 				}
 
 				r.msgChan <- []byte(msg.Payload)
