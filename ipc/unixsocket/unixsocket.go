@@ -102,15 +102,13 @@ func (r *UnixSocketHandler) Connect() error {
 
 					r.msgChan <- buf[:n]
 
-					// Also, dispatch it to the other connections
+					// Also, dispatch it to all connections including self
 					for _, c := range r.conns {
-						if c != conn {
-							_, err = c.Write(buf[:n])
+						_, err = c.Write(buf[:n])
 
-							if err != nil {
-								log.Debugf("error writing to connection: %v", err)
-								continue
-							}
+						if err != nil {
+							log.Debugf("error writing to connection: %v", err)
+							continue
 						}
 					}
 				}
